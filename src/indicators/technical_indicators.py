@@ -8,7 +8,7 @@ class TechnicalIndicators:
         """
         计算多空指标BBI
         BBI = (MA3 + MA6 + MA12 + MA24) / 4
-        :param df: 包含收盘价的DataFrame，需要有'close'列
+        :param df: 包含收盘价的DataFrame，需要有'收盘价'列
         :param periods: 计算BBI的周期列表，默认[3, 6, 12, 24]
         :return: 添加了BBI列的DataFrame
         """
@@ -16,7 +16,7 @@ class TechnicalIndicators:
         
         # 计算各周期移动平均线
         for period in periods:
-            df_copy[f'MA{period}'] = df_copy['close'].rolling(window=period).mean()
+            df_copy[f'MA{period}'] = df_copy['收盘价'].rolling(window=period).mean()
         
         # 计算BBI
         df_copy['BBI'] = df_copy[[f'MA{period}' for period in periods]].mean(axis=1)
@@ -31,7 +31,7 @@ class TechnicalIndicators:
     def calculate_macd(df: pd.DataFrame, fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> pd.DataFrame:
         """
         计算MACD指标
-        :param df: 包含收盘价的DataFrame，需要有'close'列
+        :param df: 包含收盘价的DataFrame，需要有'收盘价'列
         :param fast_period: 快速EMA周期，默认12
         :param slow_period: 慢速EMA周期，默认26
         :param signal_period: 信号线周期，默认9
@@ -40,8 +40,8 @@ class TechnicalIndicators:
         df_copy = df.copy()
         
         # 计算EMA
-        df_copy['EMA12'] = df_copy['close'].ewm(span=fast_period, adjust=False).mean()
-        df_copy['EMA26'] = df_copy['close'].ewm(span=slow_period, adjust=False).mean()
+        df_copy['EMA12'] = df_copy['收盘价'].ewm(span=fast_period, adjust=False).mean()
+        df_copy['EMA26'] = df_copy['收盘价'].ewm(span=slow_period, adjust=False).mean()
         
         # 计算DIF（MACD线）
         df_copy['MACD'] = df_copy['EMA12'] - df_copy['EMA26']
@@ -61,14 +61,14 @@ class TechnicalIndicators:
     def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         """
         计算相对强弱指标RSI
-        :param df: 包含收盘价的DataFrame，需要有'close'列
+        :param df: 包含收盘价的DataFrame，需要有'收盘价'列
         :param period: 计算周期，默认14
         :return: 添加了RSI列的DataFrame
         """
         df_copy = df.copy()
         
         # 计算价格变动
-        delta = df_copy['close'].diff()
+        delta = df_copy['收盘价'].diff()
         
         # 分离上涨和下跌
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -86,7 +86,7 @@ class TechnicalIndicators:
     def calculate_kdj(df: pd.DataFrame, n: int = 9, m1: int = 3, m2: int = 3) -> pd.DataFrame:
         """
         计算随机指标KDJ
-        :param df: 包含最高价、最低价、收盘价的DataFrame，需要有'high'、'low'、'close'列
+        :param df: 包含最高价、最低价、收盘价的DataFrame，需要有'最高价'、'最低价'、'收盘价'列
         :param n: RSV计算周期，默认9
         :param m1: K值计算周期，默认3
         :param m2: D值计算周期，默认3
@@ -97,9 +97,9 @@ class TechnicalIndicators:
         # 计算RSV值
         df_copy['RSV'] = 0.0
         for i in range(n-1, len(df_copy)):
-            low_min = df_copy['low'].iloc[i-n+1:i+1].min()
-            high_max = df_copy['high'].iloc[i-n+1:i+1].max()
-            df_copy.loc[df_copy.index[i], 'RSV'] = (df_copy['close'].iloc[i] - low_min) / (high_max - low_min) * 100
+            low_min = df_copy['最低价'].iloc[i-n+1:i+1].min()
+            high_max = df_copy['最高价'].iloc[i-n+1:i+1].max()
+            df_copy.loc[df_copy.index[i], 'RSV'] = (df_copy['收盘价'].iloc[i] - low_min) / (high_max - low_min) * 100
         
         # 计算K、D、J值
         df_copy['K'] = 50.0

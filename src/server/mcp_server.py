@@ -6,7 +6,7 @@ from src.data_fetch.stock_data_fetcher import StockDataFetcher
 from src.indicators.technical_indicators import TechnicalIndicators
 from src.strategies.base_strategy import (
     BaseStrategy, BBIStrategy, MACDGoldenCrossStrategy,
-    RSIStrategy, KDJStrategy, CombinedStrategy
+    RSIStrategy, KDJStrategy, CombinedStrategy, HotPlateStrategy
 )
 
 # 初始化应用
@@ -22,7 +22,8 @@ strategy_map = {
     "macd": MACDGoldenCrossStrategy,
     "rsi": RSIStrategy,
     "kdj": KDJStrategy,
-    "combined": CombinedStrategy
+    "combined": CombinedStrategy,
+    "hot_plate": HotPlateStrategy
 }
 
 # 请求模型

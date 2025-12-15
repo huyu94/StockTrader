@@ -24,8 +24,8 @@ class StockVisualizer:
         df = df.tail(100)  # 只显示最近100天的数据
         
         # 绘制收盘价和BBI
-        ax1.plot(df['trade_date'], df['close'], label='Close Price', color='blue', linewidth=1.5)
-        ax1.plot(df['trade_date'], df['BBI'], label='BBI', color='red', linewidth=2)
+        ax1.plot(df['日期'], df['收盘价'], label='Close Price', color='blue', linewidth=1.5)
+        ax1.plot(df['日期'], df['BBI'], label='BBI', color='red', linewidth=2)
         
         ax1.set_title(f'{ts_code} K线图与BBI指标')
         ax1.set_ylabel('Price')
@@ -33,7 +33,7 @@ class StockVisualizer:
         ax1.grid(True)
         
         # 绘制成交量
-        ax2.bar(df['trade_date'], df['vol'], color='green', alpha=0.6)
+        ax2.bar(df['日期'], df['成交量'], color='green', alpha=0.6)
         ax2.set_ylabel('Volume')
         ax2.set_xlabel('Date')
         ax2.grid(True)
@@ -64,35 +64,35 @@ class StockVisualizer:
         
         # 绘制K线图
         fig.add_trace(
-            go.Candlestick(x=df['trade_date'],
-                          open=df['open'],
-                          high=df['high'],
-                          low=df['low'],
-                          close=df['close'],
+            go.Candlestick(x=df['日期'],
+                          open=df['开盘价'],
+                          high=df['最高价'],
+                          low=df['最低价'],
+                          close=df['收盘价'],
                           name='K线'),
             row=1, col=1
         )
         
         # 绘制成交量
         fig.add_trace(
-            go.Bar(x=df['trade_date'], y=df['vol'], name='Volume', marker_color='green', opacity=0.6),
+            go.Bar(x=df['日期'], y=df['成交量'], name='Volume', marker_color='green', opacity=0.6),
             row=2, col=1
         )
         
         # 绘制MACD
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['MACD'], name='MACD', line=dict(color='blue')),
+            go.Scatter(x=df['日期'], y=df['MACD'], name='MACD', line=dict(color='blue')),
             row=3, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['DEA'], name='DEA', line=dict(color='orange')),
+            go.Scatter(x=df['日期'], y=df['DEA'], name='DEA', line=dict(color='orange')),
             row=3, col=1
         )
         
         # MACD柱状图
         fig.add_trace(
-            go.Bar(x=df['trade_date'], y=df['MACD_HIST'], name='MACD_HIST', marker_color=df['MACD_HIST'].apply(lambda x: 'red' if x < 0 else 'green')),
+            go.Bar(x=df['日期'], y=df['MACD_HIST'], name='MACD_HIST', marker_color=df['MACD_HIST'].apply(lambda x: 'red' if x < 0 else 'green')),
             row=3, col=1
         )
         
@@ -132,7 +132,7 @@ class StockVisualizer:
         fig, ax = plt.subplots(figsize=(15, 6))
         
         # 绘制RSI
-        ax.plot(df['trade_date'], df['RSI'], label='RSI', color='purple', linewidth=2)
+        ax.plot(df['日期'], df['RSI'], label='RSI', color='purple', linewidth=2)
         
         # 添加超买超卖线
         ax.axhline(y=70, color='red', linestyle='--', alpha=0.7, label='Overbought (70)')
@@ -166,9 +166,9 @@ class StockVisualizer:
         fig, ax = plt.subplots(figsize=(15, 6))
         
         # 绘制KDJ
-        ax.plot(df['trade_date'], df['K'], label='K', color='blue', linewidth=1.5)
-        ax.plot(df['trade_date'], df['D'], label='D', color='orange', linewidth=1.5)
-        ax.plot(df['trade_date'], df['J'], label='J', color='green', linewidth=1.5)
+        ax.plot(df['日期'], df['K'], label='K', color='blue', linewidth=1.5)
+        ax.plot(df['日期'], df['D'], label='D', color='orange', linewidth=1.5)
+        ax.plot(df['日期'], df['J'], label='J', color='green', linewidth=1.5)
         
         # 添加超买超卖线
         ax.axhline(y=80, color='red', linestyle='--', alpha=0.7, label='Overbought (80)')
@@ -206,61 +206,61 @@ class StockVisualizer:
         
         # 1. 绘制K线图和BBI
         fig.add_trace(
-            go.Candlestick(x=df['trade_date'],
-                          open=df['open'],
-                          high=df['high'],
-                          low=df['low'],
-                          close=df['close'],
+            go.Candlestick(x=df['日期'],
+                          open=df['开盘价'],
+                          high=df['最高价'],
+                          low=df['最低价'],
+                          close=df['收盘价'],
                           name='K线'),
             row=1, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['BBI'], name='BBI', line=dict(color='red', width=2)),
+            go.Scatter(x=df['日期'], y=df['BBI'], name='BBI', line=dict(color='red', width=2)),
             row=1, col=1
         )
         
         # 2. 绘制成交量
         fig.add_trace(
-            go.Bar(x=df['trade_date'], y=df['vol'], name='Volume', marker_color='green', opacity=0.6),
+            go.Bar(x=df['日期'], y=df['成交量'], name='Volume', marker_color='green', opacity=0.6),
             row=2, col=1
         )
         
         # 3. 绘制MACD
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['MACD'], name='MACD', line=dict(color='blue')),
+            go.Scatter(x=df['日期'], y=df['MACD'], name='MACD', line=dict(color='blue')),
             row=3, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['DEA'], name='DEA', line=dict(color='orange')),
+            go.Scatter(x=df['日期'], y=df['DEA'], name='DEA', line=dict(color='orange')),
             row=3, col=1
         )
         
         fig.add_trace(
-            go.Bar(x=df['trade_date'], y=df['MACD_HIST'], name='MACD_HIST', 
+            go.Bar(x=df['日期'], y=df['MACD_HIST'], name='MACD_HIST', 
                   marker_color=df['MACD_HIST'].apply(lambda x: 'red' if x < 0 else 'green')),
             row=3, col=1
         )
         
         # 4. 绘制RSI和KDJ
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['RSI'], name='RSI', line=dict(color='purple', yaxis='y1')),
+            go.Scatter(x=df['日期'], y=df['RSI'], name='RSI', line=dict(color='purple', yaxis='y1')),
             row=4, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['K'], name='K', line=dict(color='blue', yaxis='y2')),
+            go.Scatter(x=df['日期'], y=df['K'], name='K', line=dict(color='blue', yaxis='y2')),
             row=4, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['D'], name='D', line=dict(color='orange', yaxis='y2')),
+            go.Scatter(x=df['日期'], y=df['D'], name='D', line=dict(color='orange', yaxis='y2')),
             row=4, col=1
         )
         
         fig.add_trace(
-            go.Scatter(x=df['trade_date'], y=df['J'], name='J', line=dict(color='green', yaxis='y2')),
+            go.Scatter(x=df['日期'], y=df['J'], name='J', line=dict(color='green', yaxis='y2')),
             row=4, col=1
         )
         
@@ -284,15 +284,15 @@ class StockVisualizer:
         fig.update_yaxes(title_text='KDJ', row=4, col=1, side='right', range=[0, 100], overlaying='y1')
         
         # 添加RSI超买超卖线
-        fig.add_hline(y=70, x0=df['trade_date'].min(), x1=df['trade_date'].max(), 
+        fig.add_hline(y=70, x0=df['日期'].min(), x1=df['日期'].max(), 
                      line=dict(color='red', dash='dash', opacity=0.7), row=4, col=1)
-        fig.add_hline(y=30, x0=df['trade_date'].min(), x1=df['trade_date'].max(), 
+        fig.add_hline(y=30, x0=df['日期'].min(), x1=df['日期'].max(), 
                      line=dict(color='green', dash='dash', opacity=0.7), row=4, col=1)
         
         # 添加KDJ超买超卖线
-        fig.add_hline(y=80, x0=df['trade_date'].min(), x1=df['trade_date'].max(), 
+        fig.add_hline(y=80, x0=df['日期'].min(), x1=df['日期'].max(), 
                      line=dict(color='red', dash='dash', opacity=0.7), row=4, col=1)
-        fig.add_hline(y=20, x0=df['trade_date'].min(), x1=df['trade_date'].max(), 
+        fig.add_hline(y=20, x0=df['日期'].min(), x1=df['日期'].max(), 
                      line=dict(color='green', dash='dash', opacity=0.7), row=4, col=1)
         
         if save:
