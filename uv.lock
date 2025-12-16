@@ -990,6 +990,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "scipy" },
+    { name = "tqdm" },
     { name = "tushare" },
     { name = "uvicorn" },
 ]
@@ -1004,6 +1005,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "scipy", specifier = ">=1.16.3" },
+    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "tushare", specifier = ">=1.4.24" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
