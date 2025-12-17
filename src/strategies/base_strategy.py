@@ -236,8 +236,8 @@ class HotPlateStrategy(BaseStrategy):
     def __init__(self):
         super().__init__()
         self.hot_industries = ['科技', '电子', '半导体', '计算机', '人工智能', '核聚变', '航天', '卫星', '新能源', '光伏', '风电']
-        from src.data_fetch.stock_data_fetcher import StockDataFetcher
-        self.fetcher = StockDataFetcher()
+        from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
+        self.fetcher = StockDailyKLineFetcher()
         # 加载所有股票的基本信息
         try:
             self.stock_basic = self.fetcher.get_stock_basic_info()

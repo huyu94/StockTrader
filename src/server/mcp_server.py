@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import pandas as pd
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.indicators.technical_indicators import TechnicalIndicators
 from src.strategies.base_strategy import (
     BaseStrategy, BBIStrategy, MACDGoldenCrossStrategy,
@@ -13,7 +13,7 @@ from src.strategies.base_strategy import (
 app = FastAPI(title="Stock Analysis MCP Server", version="1.0.0")
 
 # 初始化各个模块
-fetcher = StockDataFetcher()
+fetcher = StockDailyKLineFetcher()
 indicators_calculator = TechnicalIndicators()
 
 # 策略映射

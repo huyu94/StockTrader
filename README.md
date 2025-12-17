@@ -80,10 +80,10 @@ DATA_PATH=data/
 
 ```bash
 # 获取单只股票数据（例如：000001.SZ）
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.get_daily_k_data('000001.SZ', start_date='20250101', end_date='20251231')"
+uv run python -c "from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher; fetcher = StockDataFetcher(); fetcher.get_daily_k_data('000001.SZ', start_date='20250101', end_date='20251231')"
 
 # 批量获取多只股票数据
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.get_multi_stocks_daily_k(['000001.SZ', '600000.SH'], start_date='20250101', end_date='20251231')"
+uv run python -c "from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); fetcher.get_multi_stocks_daily_k(['000001.SZ', '600000.SH'], start_date='20250101', end_date='20251231')"
 
 # 爬取最近一年所有股票数据
 uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.fetch_all_stocks_last_year()"
@@ -104,7 +104,7 @@ from src.data_fetch.stock_data_fetcher import StockDataFetcher
 
 # 测试fetch功能
 if __name__ == "__main__":
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 获取单只股票数据，测试是否能正确保存原始股价和复权因子
     df = fetcher.get_daily_k_data('000001.SZ', start_date='20251201', end_date='20251215', save_local=True)

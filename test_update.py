@@ -10,7 +10,7 @@ import os
 # 将项目根目录添加到Python搜索路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.indicators.technical_indicators import TechnicalIndicators
 
 
@@ -20,7 +20,7 @@ def test_data_fetch():
     """
     print("=== 测试数据获取功能 ===")
     
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 测试获取单只股票数据
     print("\n1. 测试获取单只股票数据...")
@@ -101,7 +101,7 @@ def test_batch_fetch():
     """
     print("\n=== 测试批量获取股票数据 ===")
     
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 测试获取少量股票数据
     print("\n测试获取少量股票数据...")

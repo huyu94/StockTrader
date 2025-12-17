@@ -10,7 +10,7 @@ import os
 # 将项目根目录添加到Python搜索路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.indicators.technical_indicators import TechnicalIndicators
 from src.strategies.base_strategy import (
     BBIStrategy, MACDGoldenCrossStrategy,
@@ -25,7 +25,7 @@ def test_data_fetch():
     """
     print("=== 测试数据获取模块 ===")
     
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 测试获取单只股票数据
     print("\n1. 测试获取单只股票数据...")
@@ -73,7 +73,7 @@ def test_strategy_filtering():
     """
     print("\n=== 测试策略筛选模块 ===")
     
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 获取少量股票数据用于测试
     test_stocks = ['000001.SZ', '600000.SH', '000858.SZ', '000002.SZ', '600036.SH']

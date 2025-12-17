@@ -6,7 +6,7 @@ from tqdm import tqdm
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 import tushare as ts
 import pandas as pd
 from src.config import TUSHARE_TOKEN, DATA_PATH
@@ -90,7 +90,7 @@ def main():
     print(f"=== 开始爬取{current_year}年A股所有股票数据 ===")
     
     # 初始化数据获取器
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 爬取股票基本信息
     crawl_stock_basic_info()

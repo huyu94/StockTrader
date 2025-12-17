@@ -10,7 +10,7 @@ import os
 # 将项目根目录添加到Python搜索路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 
 
 def test_local_data_check():
@@ -19,7 +19,7 @@ def test_local_data_check():
     """
     print("=== 测试本地数据检查功能 ===")
     
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 测试1：第一次获取数据，应该从API获取
     print("\n1. 第一次获取数据（应该从API获取）...")

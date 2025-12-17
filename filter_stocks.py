@@ -14,7 +14,7 @@ import os
 # 将项目根目录添加到Python搜索路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.strategies.base_strategy import HotPlateStrategy
 
 
@@ -43,7 +43,7 @@ def filter_stocks():
             return
     
     print("\n1. 初始化数据获取器...")
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     print("\n2. 初始化热门板块策略...")
     strategy = HotPlateStrategy()

@@ -10,7 +10,7 @@ import os
 # 将项目根目录添加到Python搜索路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data_fetch.stock_data_fetcher import StockDataFetcher
+from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.strategies.base_strategy import HotPlateStrategy
 
 
@@ -31,7 +31,7 @@ def test_hot_plate_strategy():
         return
     
     # 初始化数据获取器
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     # 测试热门板块判断
     print("\n2. 测试热门板块判断功能...")

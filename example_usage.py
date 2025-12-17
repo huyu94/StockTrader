@@ -17,10 +17,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # 示例1：获取股票数据
 print("=== 示例1：获取股票数据 ===")
 try:
-    from src.data_fetch.stock_data_fetcher import StockDataFetcher
+    from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
     
     # 初始化数据获取器
-    fetcher = StockDataFetcher()
+    fetcher = StockDailyKLineFetcher()
     
     print("1. 注意：要运行数据获取示例，请先在src/config.py中配置您的Tushare API密钥")
     print("2. 配置完成后，您可以取消以下代码的注释来测试数据获取功能：")
