@@ -6,7 +6,7 @@ load_dotenv()
 
 # Tushare API配置
 TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "your_tushare_token_here")  # 从环境变量获取API密钥
-print(f"TUSHARE_TOKEN: {TUSHARE_TOKEN}")
+# print(f"TUSHARE_TOKEN: {TUSHARE_TOKEN}")
 # 数据存储路径
 DATA_PATH = os.getenv("DATA_PATH", "data/")
 

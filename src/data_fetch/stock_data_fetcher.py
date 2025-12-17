@@ -1,3 +1,4 @@
+from loguru import logger
 import tushare as ts
 import pandas as pd
 import os
@@ -23,7 +24,6 @@ class StockDailyKLineFetcher:
         os.makedirs(self.stock_data_path, exist_ok=True)
         os.makedirs(self.adj_factor_path, exist_ok=True)
 
-
     
     def get_stock_basic_info(self, exchange: str = 'SSE', save_local: bool = True) -> pd.DataFrame:
         """
@@ -31,7 +31,8 @@ class StockDailyKLineFetcher:
         :param exchange: 交易所代码，可选值：SSE（上交所）、SZSE（深交所）、BSE（北交所）
         :return: 股票基本信息DataFrame
         """
-        df = pro.stock_basic(exchange=exchange, list_status='L', fields='ts_code,symbol,name,area,industry,list_date')
+        df = pro.stock_basic(exchange=exchange, list_status='L', fields='ts_code,symbol,name,area,industry,market, exchange,list_date')
+        logger.info(f"获取股票基本信息完成，共{len(df)}条记录")
         if save_local:
             self.save_stock_basic_info(df)
         return df
@@ -40,12 +41,18 @@ class StockDailyKLineFetcher:
         """
         保存股票基本信息到本地
         :param df: 股票基本信息DataFrame
-        """
-        origin_df = pd.read_csv(self.stock_basic_info_path)
-        # 合并数据，保留所有唯一的股票代码
-        merged_df = pd.concat([origin_df, df]).drop_duplicates(subset=['ts_code'], keep='last')
+        """        
+        # 检查文件是否存在
+        if os.path.exists(self.stock_basic_info_path):
+            origin_df = pd.read_csv(self.stock_basic_info_path)
+            # 合并数据，保留所有唯一的股票代码
+            merged_df = pd.concat([origin_df, df]).drop_duplicates(subset=['ts_code'], keep='last')
+        else:
+            # 如果文件不存在，直接保存当前数据
+            merged_df = df.copy()
+            
         merged_df.to_csv(self.stock_basic_info_path, index=False, encoding='utf-8-sig')
-        print(f"股票基本信息已保存到：{self.stock_basic_info_path}")
+        logger.info(f"股票基本信息已保存到：{self.stock_basic_info_path}")
 
     def get_all_stock_codes(self) -> list:
         """
@@ -227,8 +234,11 @@ class StockDailyKLineFetcher:
         print(f"=== 开始补爬{ts_code}缺失数据 ===")
         
         # 检测缺失日期
+
         missing_dates = self.detect_missing_dates(ts_code, start_date, end_date)
-        
+        min_date = missing_dates.min()
+        max_date = missing_dates.max()
+
         if len(missing_dates) == 0:
             print(f"{ts_code} 没有缺失数据，无需补爬")
             return
@@ -324,7 +334,7 @@ class StockDailyKLineFetcher:
 # 示例用法
 if __name__ == "__main__":
     fetcher = StockDailyKLineFetcher()
-
+    
     
     # 获取单只股票数据
     # df = fetcher.get_daily_k_data('000001.SZ', start_date='20240101', end_date='20241231')
