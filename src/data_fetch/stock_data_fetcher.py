@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.config import TUSHARE_TOKEN, DATA_PATH
+from src.data_fetch.column_mappings import DAILY_COLUMN_MAPPINGS, ADJ_FACTOR_COLUMN_MAPPINGS
 
 # 初始化Tushare
 pro = ts.pro_api(TUSHARE_TOKEN)
@@ -15,6 +16,7 @@ class StockDataFetcher:
         # 确保数据目录存在
         os.makedirs(self.stock_data_path, exist_ok=True)
         os.makedirs(self.adj_factor_path, exist_ok=True)
+    
     
     def get_stock_basic_info(self, exchange: str = 'SSE') -> pd.DataFrame:
         """
@@ -57,14 +59,10 @@ class StockDataFetcher:
             df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
             df = df.sort_values(by='trade_date')
             
-            # 重命名列名
-            df = df.rename(columns={
-                'trade_date': '日期',
-                'adj_factor': '复权因子'
-            })
+
             
             # 选择需要的列
-            df = df[['日期', '复权因子']]
+            df = df[ADJ_FACTOR_COLUMN_MAPPINGS.keys()]
             
             # 保存到本地
             if save_local:
@@ -97,8 +95,8 @@ class StockDataFetcher:
                 return local_df
             else:
                 # 如果指定了日期范围，检查本地数据是否覆盖该范围
-                local_start = local_df['日期'].min().strftime('%Y%m%d')
-                local_end = local_df['日期'].max().strftime('%Y%m%d')
+                local_start = local_df['trade_date'].min().strftime('%Y%m%d')
+                local_end = local_df['trade_date'].max().strftime('%Y%m%d')
                 
                 # 检查请求的日期范围是否完全在本地数据范围内
                 if (start_date is None or start_date <= local_start) and (end_date is None or end_date >= local_end):
@@ -127,187 +125,30 @@ class StockDataFetcher:
         df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
         df = df.sort_values(by='trade_date')
         
-        # 重命名列名，符合要求的数据结构
-        df = df.rename(columns={
-            'trade_date': '日期',
-            'open': '开盘价',
-            'close': '收盘价',
-            'high': '最高价',
-            'low': '最低价',
-            'vol': '成交量',
-            'amount': '成交额'
-        })
         
         # 选择需要的列
-        df = df[['日期', '开盘价', '收盘价', '最高价', '最低价', '成交量', '成交额']]
+        df = df[DAILY_COLUMN_MAPPINGS.keys()]
         
         # 保存到本地
         if save_local:
-            file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
-            df.to_csv(file_path, index=False, encoding='utf-8-sig')
-            print(f"原始股价数据已保存到：{file_path}")
+            self.save_daily_k_data(ts_code, df)
         
         # 同时获取并保存复权因子
         self.get_adj_factor(ts_code, start_date, end_date, save_local)
         
         return df
     
-    def get_batch_daily_k_data(self, ts_code: str = None, trade_date: str = None, start_date: str = None, end_date: str = None, save_local: bool = True) -> dict:
-        """
-        批量获取股票原始日线K线数据（利用pro_daily接口的批量查询功能）
-        :param ts_code: 股票代码，支持多个股票同时提取（逗号分隔），格式：000001.SZ,600000.SH
-        :param trade_date: 交易日期，格式：YYYYMMDD
-        :param start_date: 开始日期，格式：YYYYMMDD
-        :param end_date: 结束日期，格式：YYYYMMDD
-        :param save_local: 是否保存到本地
-        :return: 股票代码为键，DataFrame为值的字典
-        """
-        print("=== 开始批量获取股票日线数据 ===")
-        
-        # 处理参数优先级：trade_date优先于start_date和end_date
-        if trade_date:
-            # 如果指定了交易日期，忽略start_date和end_date
-            start_date = trade_date
-            end_date = trade_date
-            print(f"交易日期：{trade_date}")
-        else:
-            # 如果没有指定日期，默认获取最近一年的数据
-            if not end_date:
-                end_date = datetime.now().strftime('%Y%m%d')
-            if not start_date:
-                # 计算一年前的日期
-                one_year_ago = datetime.now() - timedelta(days=365)
-                start_date = one_year_ago.strftime('%Y%m%d')
-            print(f"开始日期：{start_date}")
-            print(f"结束日期：{end_date}")
-        
-        if ts_code:
-            print(f"股票代码：{ts_code}")
-        
-        try:
-            # 利用pro_daily接口的批量查询功能
-            # 注意：pro_daily接口一次最多返回5000条记录
-            # 我们需要分页获取
-            all_data = []
-            offset = 0
-            limit = 5000
-            
-            while True:
-                print(f"正在获取第{offset//limit+1}页数据...")
-                # 根据参数调用pro.daily接口
-                df = pro.daily(
-                    ts_code=ts_code,
-                    trade_date=trade_date,
-                    start_date=start_date,
-                    end_date=end_date,
-                    offset=offset,
-                    limit=limit
-                )
-                
-                if df.empty:
-                    break
-                
-                all_data.append(df)
-                offset += limit
-                
-                # 如果返回的数据不足limit条，说明已经获取完毕
-                if len(df) < limit:
-                    break
-            
-            # 合并所有数据
-            if all_data:
-                df_all = pd.concat(all_data, ignore_index=True)
-                print(f"共获取{len(df_all)}条记录")
-            else:
-                print("没有获取到数据")
-                return {}
-            
-            # 转换日期格式
-            df_all['trade_date'] = pd.to_datetime(df_all['trade_date'], format='%Y%m%d')
-            df_all = df_all.sort_values(by=['ts_code', 'trade_date'])
-            
-            # 重命名列名，符合要求的数据结构
-            df_all = df_all.rename(columns={
-                'trade_date': '日期',
-                'open': '开盘价',
-                'close': '收盘价',
-                'high': '最高价',
-                'low': '最低价',
-                'vol': '成交量',
-                'amount': '成交额'
-            })
-            
-            # 选择需要的列
-            df_all = df_all[['ts_code', '日期', '开盘价', '收盘价', '最高价', '最低价', '成交量', '成交额']]
-            
-            # 按股票代码分组，保存到本地
-            result = {}
-            
-            # 获取所有唯一的股票代码
-            unique_ts_codes = df_all['ts_code'].unique()
-            print(f"共获取{len(unique_ts_codes)}只股票的数据")
-            
-            # 使用tqdm显示进度
-            from tqdm import tqdm
-            for ts_code in tqdm(unique_ts_codes, desc="保存股票数据", unit="只"):
-                group = df_all[df_all['ts_code'] == ts_code].copy()
-                # 移除ts_code列
-                group = group.drop(columns=['ts_code'])
-                result[ts_code] = group
-                
-                if save_local:
-                    file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
-                    group.to_csv(file_path, index=False, encoding='utf-8-sig')
-            
-            print(f"=== 批量获取所有股票日线数据完成，共获取{len(result)}只股票的数据 ===")
-            return result
-        except Exception as e:
-            print(f"批量获取股票数据失败：{e}")
-            return {}
+
+    def save_daily_k_data(self, ts_code: str, df: pd.DataFrame) -> None:
+
+
+
+
+
+
+
+
     
-    def get_multi_stocks_daily_k(self, ts_codes: list, start_date: str = None, end_date: str = None, max_workers: int = 2, retry_times: int = 3, delay: float = 0.5) -> dict:
-        """
-        批量获取多只股票的日线K线数据（带重试和限流）
-        :param ts_codes: 股票代码列表
-        :param start_date: 开始日期
-        :param end_date: 结束日期
-        :param max_workers: 最大并行线程数（Tushare API限制为2）
-        :param retry_times: 重试次数
-        :param delay: 请求间隔（秒）
-        :return: 股票代码为键，DataFrame为值的字典
-        """
-        result = {}
-        import time
-        
-        def fetch_single_stock(ts_code):
-            """获取单只股票数据的内部函数，带重试机制"""
-            for attempt in range(retry_times):
-                try:
-                    # 添加请求间隔
-                    time.sleep(delay)
-                    df = self.get_daily_k_data(ts_code, start_date, end_date)
-                    if df is not None:
-                        print(f"成功获取{ts_code}的数据")
-                        return ts_code, df
-                except Exception as e:
-                    print(f"获取{ts_code}的数据失败（第{attempt+1}/{retry_times}次）：{e}")
-                    # 如果不是最后一次尝试，增加延迟
-                    if attempt < retry_times - 1:
-                        time.sleep(delay * 2)
-            return ts_code, None
-        
-        # 使用线程池并行获取数据，最大并行数设为2（Tushare API限制）
-        with ThreadPoolExecutor(max_workers=min(max_workers, 2)) as executor:
-            # 提交所有任务
-            futures = {executor.submit(fetch_single_stock, ts_code): ts_code for ts_code in ts_codes}
-            
-            # 收集结果
-            for future in as_completed(futures):
-                ts_code, df = future.result()
-                if df is not None:
-                    result[ts_code] = df
-        
-        return result
     
     def fetch_all_stocks_last_year(self) -> None:
         """
@@ -345,6 +186,206 @@ class StockDataFetcher:
         df = df.sort_values(by='trade_date')
         return df
     
+    def detect_missing_dates(self, ts_code: str = None, start_date: str = None, end_date: str = None, df: pd.DataFrame = None) -> pd.DatetimeIndex:
+        """
+        检测股票数据中缺失的交易日
+        :param ts_code: 股票代码，若提供则从本地加载数据
+        :param start_date: 开始日期，格式：YYYYMMDD
+        :param end_date: 结束日期，格式：YYYYMMDD
+        :param df: 若提供则直接使用，否则从本地加载
+        :return: 缺失的交易日索引
+        """
+        print("=== 开始检测缺失交易日 ===")
+        
+        # 处理日期参数
+        if not end_date:
+            end_date = datetime.now().strftime('%Y%m%d')
+        if not start_date:
+            # 计算一年前的日期
+            one_year_ago = datetime.now() - timedelta(days=365)
+            start_date = one_year_ago.strftime('%Y%m%d')
+        
+        # 转换为datetime格式
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        
+        print(f"检测区间：{start_date} 至 {end_date}")
+        
+        # 获取数据
+        if df is None:
+            if ts_code:
+                df = self.load_local_data(ts_code)
+                if df is None:
+                    print(f"未找到{ts_code}的本地数据")
+                    return pd.DatetimeIndex([])
+            else:
+                print("必须提供ts_code或df参数")
+                return pd.DatetimeIndex([])
+        
+        # 确保日期列是datetime格式
+        if 'trade_date' in df.columns:
+            df['trade_date'] = pd.to_datetime(df['trade_date'])
+            existing_dates = df['trade_date']
+        elif '日期' in df.columns:
+            df['日期'] = pd.to_datetime(df['日期'])
+            existing_dates = df['日期']
+        else:
+            print("数据中没有日期列")
+            return pd.DatetimeIndex([])
+        
+        # 1. 获取完整的交易日序列
+        full_trade_dates = []
+        
+        # 遍历年份，获取每个年份的交易日历
+        for year in range(start_dt.year, end_dt.year + 1):
+            # 尝试从本地加载交易日历
+            calendar_path = os.path.join(DATA_PATH, f"trade_calendar_{year}.csv")
+            
+            if os.path.exists(calendar_path):
+                # 从本地加载交易日历
+                calendar_df = pd.read_csv(calendar_path)
+                
+                # 转换cal_date为datetime格式（注意文件中的格式是YYYYMMDD字符串）
+                calendar_df['cal_date'] = pd.to_datetime(calendar_df['cal_date'], format='%Y%m%d')
+                
+                # 筛选出交易日（is_open=1）
+                year_trade_dates = calendar_df[calendar_df['is_open'] == 1]['cal_date']
+                
+                # 筛选出指定日期范围内的交易日
+                year_trade_dates = year_trade_dates[(year_trade_dates >= start_dt) & (year_trade_dates <= end_dt)]
+                
+                # 添加到完整序列中
+                full_trade_dates.extend(year_trade_dates.tolist())
+            else:
+                # 如果本地文件不存在，从API获取
+                print(f"正在获取{year}年交易日历...")
+                start_date_year = f"{year}0101"
+                end_date_year = f"{year}1231"
+                calendar_df = pro.trade_cal(exchange='', start_date=start_date_year, end_date=end_date_year, fields='cal_date,is_open')
+                
+                # 转换cal_date为datetime格式
+                calendar_df['cal_date'] = pd.to_datetime(calendar_df['cal_date'], format='%Y%m%d')
+                
+                # 筛选出交易日（is_open=1）和指定日期范围
+                year_trade_dates = calendar_df[(calendar_df['is_open'] == 1) & 
+                                             (calendar_df['cal_date'] >= start_dt) & 
+                                             (calendar_df['cal_date'] <= end_dt)]['cal_date']
+                
+                # 添加到完整序列中
+                full_trade_dates.extend(year_trade_dates.tolist())
+                
+                # 保存到本地
+                calendar_df.to_csv(calendar_path, index=False, encoding='utf-8-sig')
+                print(f"{year}年交易日历已保存到：{calendar_path}")
+        
+        # 转换为datetime index并去重排序
+        full_trade_dates = pd.DatetimeIndex(full_trade_dates)
+        full_trade_dates = full_trade_dates.unique().sort_values()
+        
+        # 转换现有日期为date格式，以便对比
+        existing_dates_date = existing_dates.dt.date
+        
+        # DatetimeIndex直接使用.date属性，不需要dt访问器
+        full_trade_dates_date = full_trade_dates.date
+        
+        # 4. 对比找出缺失的交易日
+        missing_dates = full_trade_dates[~pd.Series(full_trade_dates_date).isin(existing_dates_date)]
+        
+        # 5. 输出结果
+        print(f"总应爬交易日数：{len(full_trade_dates)}")
+        print(f"已爬交易日数：{len(existing_dates)}")
+        print(f"缺失交易日数：{len(missing_dates)}")
+        
+        if len(missing_dates) > 0:
+            print(f"缺失日期列表：\n{missing_dates.strftime('%Y-%m-%d').tolist()}")
+        
+        return missing_dates
+    
+    def fill_missing_data(self, ts_code: str, start_date: str = None, end_date: str = None) -> None:
+        """
+        自动补爬股票数据中缺失的交易日
+        :param ts_code: 股票代码
+        :param start_date: 开始日期，格式：YYYYMMDD
+        :param end_date: 结束日期，格式：YYYYMMDD
+        """
+        print(f"=== 开始补爬{ts_code}缺失数据 ===")
+        
+        # 检测缺失日期
+        missing_dates = self.detect_missing_dates(ts_code, start_date, end_date)
+        
+        if len(missing_dates) == 0:
+            print(f"{ts_code} 没有缺失数据，无需补爬")
+            return
+        
+        # 转换缺失日期为字符串格式，用于API调用
+        missing_dates_str = missing_dates.strftime('%Y%m%d').tolist()
+        
+        # 按时间顺序排序
+        missing_dates_str.sort()
+        
+        # 分组获取缺失数据，每次获取连续的日期范围
+        # 这里简化处理，直接使用第一个和最后一个日期作为范围
+        start_missing = missing_dates_str[0]
+        end_missing = missing_dates_str[-1]
+        
+        print(f"开始补爬{start_missing}至{end_missing}的缺失数据...")
+        
+        # 调用get_daily_k_data方法获取缺失数据
+        missing_df = self.get_daily_k_data(ts_code, start_missing, end_missing, save_local=False)
+        
+        if missing_df is not None and not missing_df.empty:
+            print(f"成功获取{len(missing_df)}条缺失数据")
+            
+            # 加载现有数据
+            existing_df = self.load_local_data(ts_code)
+            
+            # 合并数据
+            combined_df = pd.concat([existing_df, missing_df])
+            
+            # 去重
+            combined_df = combined_df.drop_duplicates(subset=['trade_date'])
+            
+            # 按日期排序
+            combined_df = combined_df.sort_values(by=['trade_date'])
+            
+            # 保存合并后的数据
+            file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
+            combined_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            print(f"已将补爬数据合并到本地文件：{file_path}")
+            print(f"合并后数据共{len(combined_df)}条")
+        else:
+            print("未获取到缺失数据")
+        
+        print(f"=== {ts_code}缺失数据补爬完成 ===")
+    
+
+    def save_to_local_data(self, ts_code: str, df: pd.DataFrame) -> None:
+        """
+        保存原始日线K线数据到本地
+        :param ts_code: 股票代码
+        :param df: 原始日线K线数据DataFrame
+        """
+        # 检查传入数据是否为空
+        if df is None or df.empty:
+            print(f"{ts_code}：传入的数据为空，跳过保存")
+            return
+        # 生成文件路径
+        file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
+        # 读取本地文件
+        origin_df = self.load_local_data(ts_code)
+        # 合并数据
+        if origin_df is None or origin_df.empty:
+            merged_df = df.copy()
+        else:
+            merged_df = pd.concat([origin_df, df], ignore_index=True)
+        # 去重
+        merged_df = merged_df.drop_duplicates(subset=['trade_date'], keep='last')
+        # 按日期排序
+        merged_df = merged_df.sort_values(by='trade_date')
+        # 存储
+        merged_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        print(f"原始股价数据已保存到：{file_path}")
+
     def load_local_data(self, ts_code: str) -> pd.DataFrame:
         """
         从本地加载股票数据
@@ -354,7 +395,9 @@ class StockDataFetcher:
         file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
         if os.path.exists(file_path):
             df = pd.read_csv(file_path, encoding='utf-8-sig')
-            df['日期'] = pd.to_datetime(df['日期'])
+            # 转换日期列为datetime格式
+            if 'trade_date' in df.columns:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
             return df
         else:
             print(f"本地数据文件不存在：{file_path}")
