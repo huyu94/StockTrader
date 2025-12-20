@@ -5,8 +5,9 @@ from datetime import datetime, timedelta
 from typing import Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from functools import cached_property
 
-from src.config import DATA_PATH
+from project_var import DATA_DIR, PROJECT_DIR
 from src.data_fetch.column_mappings import DAILY_COLUMN_MAPPINGS, ADJ_FACTOR_COLUMN_MAPPINGS
 from src.data_fetch.providers.base import BaseProvider
 from src.data_fetch.providers.tushare_provider import TushareProvider
@@ -15,10 +16,12 @@ from src.data_fetch.providers.akshare_provider import AkShareProvider
 class StockDailyKLineFetcher:
 
     def __init__(self, provider_name: str = "tushare"):
-        self.stock_data_path = os.path.join(DATA_PATH, "stock_data")
-        self.adj_factor_path = os.path.join(DATA_PATH, "adj_factor")
-        self.stock_basic_info_path = os.path.join(DATA_PATH, "stock_basic_info.csv")
-        self.trade_calendar_path = os.path.join(DATA_PATH, "trade_calendar.csv")
+        self.stock_data_path = os.path.join(DATA_DIR, "stock_data")
+        self.adj_factor_path = os.path.join(DATA_DIR, "adj_factor")
+        self.stock_basic_info_path = os.path.join(DATA_DIR, "stock_basic_info.csv")
+        self.trade_calendar_path = os.path.join(DATA_DIR, "trade_calendar.csv")
+        self.calendar_cache_dir = os.path.join(PROJECT_DIR, "cache")
+        os.makedirs(self.calendar_cache_dir, exist_ok=True)
 
         # 确保数据目录存在
         os.makedirs(self.stock_data_path, exist_ok=True)
@@ -82,15 +85,67 @@ class StockDailyKLineFetcher:
         df = self.get_stock_basic_info(exchange='')
         return df['ts_code'].tolist()
 
-    def get_trade_calendar(self, exchange: str = 'SSE', start_date: str = '20000101', end_date: str = '20500101') -> pd.DataFrame:
-        """
-        获取交易日历
-        :return: 交易日历DataFrame
-        """
+    def _calendar_cache_path(self, exchange: str = 'SSE') -> str:
+        return os.path.join(self.calendar_cache_dir, f"trade_calendar_{exchange}.csv")
+
+    @cached_property
+    def trade_calendar_df(self) -> pd.DataFrame:
+        path = self._calendar_cache_path('SSE')
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path, encoding='utf-8-sig')
+                return df
+            except Exception:
+                pass
+        start_date = '20000101'
+        end_date = datetime.now().strftime('%Y%m%d')
         df = self.provider.get_trade_calendar(start_date=start_date, end_date=end_date)
-        df.to_csv(self.trade_calendar_path, index=False, encoding='utf-8-sig')
-        print(f"交易日历已保存到：{self.trade_calendar_path}")
+        df = df.drop_duplicates().sort_values(by='cal_date')
+        tmp = path + ".tmp"
+        df.to_csv(tmp, index=False, encoding='utf-8-sig')
+        os.replace(tmp, path)
         return df
+
+    def ensure_calendar_coverage(self, start_date: str, end_date: str, exchange: str = 'SSE') -> None:
+        df = self.trade_calendar_df
+        cached_min = df['cal_date'].min() if 'cal_date' in df.columns and not df.empty else None
+        cached_max = df['cal_date'].max() if 'cal_date' in df.columns and not df.empty else None
+        need_fetch = False
+        fetch_ranges = []
+        if cached_min is None or start_date < str(cached_min):
+            need_fetch = True
+            fetch_ranges.append((start_date, str(cached_min) if cached_min else end_date))
+        if cached_max is None or end_date > str(cached_max):
+            need_fetch = True
+            fetch_ranges.append((str(cached_max) if cached_max else start_date, end_date))
+        if need_fetch:
+            parts = []
+            for s, e in fetch_ranges:
+                if s and e and s <= e:
+                    parts.append(self.provider.get_trade_calendar(start_date=s, end_date=e))
+            if parts:
+                add_df = pd.concat(parts, ignore_index=True)
+                merged = pd.concat([df, add_df], ignore_index=True)
+                merged = merged.drop_duplicates().sort_values(by='cal_date')
+                path = self._calendar_cache_path(exchange)
+                tmp = path + ".tmp"
+                merged.to_csv(tmp, index=False, encoding='utf-8-sig')
+                os.replace(tmp, path)
+                try:
+                    del self.trade_calendar_df
+                except Exception:
+                    pass
+
+    def get_trade_calendar(self, exchange: str = 'SSE', start_date: str = '20000101', end_date: str = None) -> pd.DataFrame:
+        """
+        获取交易日历（使用缓存+增量扩展）
+        """
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y%m%d')
+        self.ensure_calendar_coverage(start_date, end_date, exchange)
+        df = self.trade_calendar_df
+        mask = (df['cal_date'] >= int(start_date)) & (df['cal_date'] <= int(end_date))
+        return df.loc[mask].copy()
 
 
     def get_adj_factor(self, ts_code: str, start_date: str, end_date: str, save_local: bool = True) -> pd.DataFrame:
@@ -116,6 +171,28 @@ class StockDailyKLineFetcher:
         
         return df
     
+    def ensure_last_year_complete(self, ts_code: str) -> pd.DataFrame:
+        one_year_ago = datetime.now() - timedelta(days=365)
+        start_date = one_year_ago.strftime('%Y%m%d')
+        end_date = datetime.now().strftime('%Y%m%d')
+        self.ensure_calendar_coverage(start_date, end_date, 'SSE')
+        local_df = self.load_local_data(ts_code)
+        if local_df is None or local_df.empty:
+            df = self.get_daily_k_data(ts_code, start_date=start_date, end_date=end_date, save_local=True)
+            return df if df is not None else pd.DataFrame()
+        df_range = local_df.copy()
+        if 'trade_date' in df_range.columns:
+            df_range = df_range[(df_range['trade_date'] >= pd.to_datetime(start_date)) & (df_range['trade_date'] <= pd.to_datetime(end_date))]
+        missing = self.detect_missing_dates(exchange='SSE', start_date=start_date, end_date=end_date, df=df_range)
+        if len(missing) > 0:
+            new_df = self.get_daily_k_data(ts_code, start_date=start_date, end_date=end_date, save_local=False)
+            if new_df is not None and not new_df.empty:
+                merged = pd.concat([local_df, new_df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=['trade_date'], keep='last').sort_values(by='trade_date')
+                file_path = os.path.join(self.stock_data_path, f"{ts_code}.csv")
+                merged.to_csv(file_path, index=False, encoding='utf-8-sig')
+                return merged
+        return local_df
     def get_daily_k_data(self, ts_code: str, start_date: str = None, end_date: str = None, 
                         save_local: bool = True) -> pd.DataFrame:
         """
@@ -129,11 +206,9 @@ class StockDailyKLineFetcher:
         # 检查本地是否已有数据
         local_df = self.load_local_data(ts_code)
         if local_df is not None:
-            # 检查本地数据是否覆盖了请求的日期范围
             if start_date is None and end_date is None:
-                # 如果没有指定日期范围，直接返回本地数据
-                # print(f"{ts_code}：使用本地已有数据，共{len(local_df)}行")
-                return local_df
+                ensured = self.ensure_last_year_complete(ts_code)
+                return ensured
             else:
                 # 如果指定了日期范围，检查本地数据是否覆盖该范围
                 local_start = local_df['trade_date'].min().strftime('%Y%m%d')
@@ -141,7 +216,6 @@ class StockDailyKLineFetcher:
                 
                 # 检查请求的日期范围是否完全在本地数据范围内
                 if (start_date is None or start_date <= local_start) and (end_date is None or end_date >= local_end):
-                    # print(f"{ts_code}：使用本地已有数据，共{len(local_df)}行")
                     return local_df
         
         # 如果没有本地数据或本地数据不覆盖请求的日期范围，则从API获取
@@ -194,6 +268,7 @@ class StockDailyKLineFetcher:
         
 
         # 1. 获取完整的交易日序列
+        self.ensure_calendar_coverage(start_date, end_date, exchange)
         calendar_df = self.get_trade_calendar(exchange=exchange, start_date=start_date, end_date=end_date)
         calendar_df['cal_date'] = pd.to_datetime(calendar_df['cal_date'], format='%Y%m%d')
         trade_df = calendar_df[calendar_df['is_open'] == 1]
@@ -327,13 +402,12 @@ class StockDailyKLineFetcher:
     def fetch_all_stocks_last_year(self, limit: int = None):
         """
         爬取最近一年所有股票数据 (Batch Operation)
-        :param limit: 限制获取的股票数量，主要用于测试
         """
         logger.info("开始爬取最近一年所有股票数据...")
         
         # 获取所有股票代码
         stock_codes = self.get_all_stock_codes()
-        if limit:
+        if limit and limit > 0:
             stock_codes = stock_codes[:limit]
             
         logger.info(f"共获取到{len(stock_codes)}只股票代码")
@@ -419,13 +493,12 @@ class StockDailyKLineFetcher:
     def update_all_stocks_data(self, limit: int = None) -> None:
         """
         更新所有股票数据，仅获取新增交易日数据 (Batch Operation)
-        :param limit: 限制更新的股票数量，主要用于测试
         """
         logger.info("开始更新所有股票数据...")
         
         # 获取所有股票代码
         stock_codes = self.get_all_stock_codes()
-        if limit:
+        if limit and limit > 0:
             stock_codes = stock_codes[:limit]
             
         logger.info(f"共获取到{len(stock_codes)}只股票代码")

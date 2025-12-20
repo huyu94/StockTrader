@@ -14,6 +14,7 @@ from datetime import datetime
 from src.config import DATA_PATH
 from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
 from src.indicators.technical_indicators import TechnicalIndicators
+from src.data_fetch.column_mappings import DAILY_COLUMN_MAPPINGS
 
 
 class IndicatorCalculator:
@@ -116,13 +117,19 @@ class IndicatorCalculator:
                     else:
                         logger.info(f"{ts_code}：指标数据需要更新，从{indicator_last_date}更新到{stock_last_date}")
             
+            def to_chinese_columns(df: pd.DataFrame) -> pd.DataFrame:
+                rename_map = {k: v for k, v in DAILY_COLUMN_MAPPINGS.items()}
+                df2 = df.copy()
+                for eng, zh in rename_map.items():
+                    if eng in df2.columns:
+                        df2.rename(columns={eng: zh}, inplace=True)
+                return df2
+
             # 计算指标
             if indicators is None or len(indicators) == 0:
-                # 计算所有指标
-                result_df = self.technical_indicators.calculate_all_indicators(stock_df)
+                result_df = self.technical_indicators.calculate_all_indicators(to_chinese_columns(stock_df))
             else:
-                # 只计算指定的指标
-                result_df = stock_df.copy()
+                result_df = to_chinese_columns(stock_df).copy()
                 for indicator in indicators:
                     if indicator.upper() == 'BBI':
                         result_df = self.technical_indicators.calculate_bbi(result_df)

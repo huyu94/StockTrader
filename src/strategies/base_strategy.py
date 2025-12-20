@@ -1,61 +1,37 @@
 import pandas as pd
+import numpy as np
 from abc import ABC, abstractmethod
 from src.indicators.technical_indicators import TechnicalIndicators
+from src.data_fetch.column_mappings import DAILY_COLUMN_MAPPINGS
 
 class BaseStrategy(ABC):
-    """
-    策略基类，所有自定义策略都应继承此类
-    """
-    
     def __init__(self):
-        self.indicators_calculator = TechnicalIndicators()
-    
-    def prepare_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        准备数据，计算所需的技术指标
-        :param df: 原始股票数据
-        :return: 添加了技术指标的数据
-        """
-        return self.indicators_calculator.calculate_all_indicators(df)
-    
+        self.ind = TechnicalIndicators()
+
+    def preprocess(self, raw_df: pd.DataFrame) -> pd.DataFrame:
+        rename_map = {k: v for k, v in DAILY_COLUMN_MAPPINGS.items()}
+        df = raw_df.copy()
+        for eng, zh in rename_map.items():
+            if eng in df.columns:
+                df.rename(columns={eng: zh}, inplace=True)
+        df['MA5'] = df['收盘价'].rolling(5).mean()
+        df['MA10'] = df['收盘价'].rolling(10).mean()
+        df = self.ind.calculate_macd(df)
+        df = self.ind.calculate_kdj(df)
+        return df
+
+    def amplitude(self, df: pd.DataFrame) -> float:
+        pre_close = df['昨收价'] if '昨收价' in df.columns else df['收盘价'].shift(1)
+        amp = (df['最高价'] - df['最低价']) / pre_close.replace(0, np.nan) * 100
+        return float(amp.fillna(0.0).iloc[-1])
+
     @abstractmethod
-    def should_buy(self, df: pd.DataFrame) -> bool:
-        """
-        买入信号判断
-        :param df: 包含技术指标的股票数据
-        :return: 是否应该买入
-        """
+    def check_stock(self, ts_code: str, raw_df: pd.DataFrame) -> bool:
         pass
-    
+
     @abstractmethod
-    def should_sell(self, df: pd.DataFrame) -> bool:
-        """
-        卖出信号判断
-        :param df: 包含技术指标的股票数据
-        :return: 是否应该卖出
-        """
+    def explain(self, ts_code: str, raw_df: pd.DataFrame) -> dict:
         pass
-    
-    def filter_stocks(self, stocks_data: dict) -> list:
-        """
-        筛选符合策略的股票
-        :param stocks_data: 股票代码为键，DataFrame为值的字典
-        :return: 符合策略的股票代码列表
-        """
-        result = []
-        
-        for ts_code, df in stocks_data.items():
-            try:
-                # 准备数据
-                df_with_indicators = self.prepare_data(df)
-                
-                # 检查买入信号
-                if self.should_buy(df_with_indicators):
-                    result.append(ts_code)
-            except Exception as e:
-                print(f"筛选{ts_code}时出错：{e}")
-        
-        return result
 
 
 class BBIStrategy(BaseStrategy):

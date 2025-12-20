@@ -77,3 +77,24 @@ class TushareProvider(BaseProvider):
         except Exception as e:
             logger.error(f"Tushare fetching daily data for {ts_code} failed: {e}")
             raise e
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type(Exception))
+    def get_dc_index(self, trade_date: str, fields: Optional[str] = None) -> pd.DataFrame:
+        try:
+            if fields:
+                df = self.pro.dc_index(trade_date=trade_date, fields=fields)
+            else:
+                df = self.pro.dc_index(trade_date=trade_date)
+            return df
+        except Exception as e:
+            logger.error(f"Tushare fetching dc_index {trade_date} failed: {e}")
+            raise e
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type(Exception))
+    def get_dc_member(self, trade_date: str, ts_code: str) -> pd.DataFrame:
+        try:
+            df = self.pro.dc_member(trade_date=trade_date, ts_code=ts_code)
+            return df
+        except Exception as e:
+            logger.error(f"Tushare fetching dc_member {ts_code} {trade_date} failed: {e}")
+            raise e

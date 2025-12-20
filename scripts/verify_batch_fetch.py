@@ -6,6 +6,7 @@ import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
+from project_var import DATA_DIR
 
 def verify_batch_fetch():
     print("=== 开始验证批量获取功能 ===")
@@ -19,19 +20,18 @@ def verify_batch_fetch():
     fetcher.get_stock_basic_info(save_local=True)
     
     # 3. 验证批量获取 (限制为 5 只股票)
-    limit = 5
-    print(f"\n3. 验证批量获取 (限制前 {limit} 只股票)...")
+    print(f"\n3. 验证批量获取 (全市场)...")
     print("注意观察下方是否有进度条显示：")
     
     start_time = time.time()
-    fetcher.fetch_all_stocks_last_year(limit=limit)
+    fetcher.fetch_all_stocks_last_year()
     end_time = time.time()
     
     print(f"\n批量获取完成，耗时: {end_time - start_time:.2f} 秒")
     
     # 4. 验证数据是否保存
     print("\n4. 验证数据保存...")
-    stock_codes = fetcher.get_all_stock_codes()[:limit]
+    stock_codes = fetcher.get_all_stock_codes()[:5]
     success_count = 0
     for code in stock_codes:
         df = fetcher.load_local_data(code)
