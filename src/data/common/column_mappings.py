@@ -1,6 +1,6 @@
-# 列名映射字典，统一管理Tushare API字段到中文列名的映射
+# 列名映射字典，统一管理Tushare/AkShare字段到中文列名的映射
 
-# pro.daily接口输出字段映射
+# 日线数据字段映射
 DAILY_COLUMN_MAPPINGS = {
     'trade_date': '日期',
     'open': '开盘价',
@@ -14,8 +14,9 @@ DAILY_COLUMN_MAPPINGS = {
     'amount': '成交额'
 }
 
-# pro.adj_factor接口输出字段映射
+# 复权因子字段映射
 ADJ_FACTOR_COLUMN_MAPPINGS = {
     'trade_date': '日期',
     'adj_factor': '复权因子'
 }
+

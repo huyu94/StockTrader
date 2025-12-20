@@ -31,4 +31,3 @@ class ConceptsFetcher:
         except Exception as e:
             logger.error(f"获取概念 {concept_name} 成分股失败：{e}")
             return []
-

@@ -91,7 +91,7 @@ class StockResultOutput:
             
             # 转换为DataFrame并保存
             df = pd.DataFrame(flat_result)
-            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            df.to_csv(file_path, index=False, encoding='utf-8')
             
             logger.info(f"结果已保存为CSV格式：{file_path}")
             return file_path
