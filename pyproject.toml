@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "akshare>=1.17.96",
     "fastapi>=0.124.2",
     "loguru>=0.7.3",
     "matplotlib>=3.10.8",
@@ -17,6 +18,7 @@ dependencies = [
     "pytest-xdist>=3.8.0",
     "python-dotenv>=1.2.1",
     "scipy>=1.16.3",
+    "tenacity>=9.1.2",
     "tqdm>=4.67.1",
     "tushare>=1.4.24",
     "uvicorn>=0.38.0",

@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
-from src.strategies.base_strategy import HotPlateStrategy
+from src.strategies.base_strategy import HotSectorKDJStrategy
 
 
 def test_hot_plate_strategy():
@@ -23,7 +23,7 @@ def test_hot_plate_strategy():
     # 初始化策略
     print("1. 初始化热门板块策略...")
     try:
-        strategy = HotPlateStrategy()
+        strategy = HotSectorKDJStrategy()
         print("   成功初始化热门板块策略")
         print(f"   热门行业列表：{strategy.hot_industries}")
     except Exception as e:

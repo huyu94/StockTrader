@@ -225,28 +225,42 @@ class CombinedStrategy(BaseStrategy):
         """
         return self.macd_strategy.should_sell(df) or self.rsi_strategy.should_sell(df)
 
-class HotPlateStrategy(BaseStrategy):
+class HotSectorKDJStrategy(BaseStrategy):
     """
-    热门板块策略：筛选符合以下条件的股票
+    热门板块KDJ策略：筛选符合以下条件的股票
     1. 属于热门板块（科技、核聚变、商业航天等）
     2. 前20日内最低点到最高点，涨幅大于20%
     3. 最后一天收盘，KDJ指标小于10
     """
     
-    def __init__(self):
+    def __init__(self, hot_industries: list = None, gain_threshold: float = 20.0, kdj_threshold: float = 10.0):
         super().__init__()
-        self.hot_industries = ['科技', '电子', '半导体', '计算机', '人工智能', '核聚变', '航天', '卫星', '新能源', '光伏', '风电']
+        # 热门板块列表，默认包含科技、新能源、航天等
+        self.hot_industries = hot_industries or ['科技', '电子', '半导体', '计算机', '人工智能', '核聚变', '航天', '卫星', '新能源', '光伏', '风电', '商业航天', '军工']
+        # 涨幅阈值，默认20%
+        self.gain_threshold = gain_threshold
+        # KDJ阈值，默认10
+        self.kdj_threshold = kdj_threshold
+        
         from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
         self.fetcher = StockDailyKLineFetcher()
         # 加载所有股票的基本信息
+        self.stock_basic = None
+        self._load_stock_basic_info()
+    
+    def _load_stock_basic_info(self):
+        """
+        加载所有股票的基本信息
+        """
         try:
-            self.stock_basic = self.fetcher.get_stock_basic_info()
+            # 获取所有交易所的股票基本信息
+            sse_basic = self.fetcher.get_stock_basic_info('SSE', save_local=False)
+            szse_basic = self.fetcher.get_stock_basic_info('SZSE', save_local=False)
+            bse_basic = self.fetcher.get_stock_basic_info('BSE', save_local=False)
+            
             # 合并所有交易所的数据
-            self.stock_basic = pd.concat([
-                self.stock_basic,
-                self.fetcher.get_stock_basic_info('SZSE'),
-                self.fetcher.get_stock_basic_info('BSE')
-            ])
+            self.stock_basic = pd.concat([sse_basic, szse_basic, bse_basic], ignore_index=True)
+            print(f"成功加载{len(self.stock_basic)}只股票的基本信息")
         except Exception as e:
             print(f"加载股票基本信息失败：{e}")
             self.stock_basic = pd.DataFrame()
@@ -257,29 +271,32 @@ class HotPlateStrategy(BaseStrategy):
         :param ts_code: 股票代码
         :return: 是否属于热门板块
         """
-        if self.stock_basic.empty:
-            return False
+        if self.stock_basic is None or self.stock_basic.empty:
+            # 如果股票基本信息未加载，尝试重新加载
+            self._load_stock_basic_info()
+            if self.stock_basic.empty:
+                return False
         
         stock_info = self.stock_basic[self.stock_basic['ts_code'] == ts_code]
         if stock_info.empty:
             return False
         
         industry = stock_info['industry'].iloc[0]
-        # 检查行业是否在热门板块列表中
+        # 检查行业是否在热门板块列表中（不区分大小写）
         for hot_industry in self.hot_industries:
-            if hot_industry in industry:
+            if hot_industry.lower() in industry.lower():
                 return True
         
         return False
     
-    def check_20d_gain(self, df: pd.DataFrame) -> bool:
+    def calculate_20d_gain(self, df: pd.DataFrame) -> float:
         """
-        检查前20日内最低点到最高点的涨幅是否大于20%
+        计算前20日内最低点到最高点的涨幅
         :param df: 股票数据
-        :return: 涨幅是否大于20%
+        :return: 涨幅百分比
         """
         if len(df) < 20:
-            return False
+            return 0.0
         
         # 获取前20日的数据（包括当天）
         recent_20d = df.tail(20)
@@ -289,33 +306,59 @@ class HotPlateStrategy(BaseStrategy):
         high = recent_20d['最高价'].max()
         
         # 计算涨幅
-        gain = (high - low) / low * 100
+        if low == 0:
+            return 0.0
         
-        return gain > 20
+        gain = (high - low) / low * 100
+        return gain
     
-    def check_kdj_less_than_10(self, df: pd.DataFrame) -> bool:
+    def check_20d_gain(self, df: pd.DataFrame) -> bool:
         """
-        检查最后一天的KDJ指标是否小于10
+        检查前20日内最低点到最高点的涨幅是否大于阈值
+        :param df: 股票数据
+        :return: 涨幅是否大于阈值
+        """
+        gain = self.calculate_20d_gain(df)
+        return gain > self.gain_threshold
+    
+    def check_kdj_less_than_threshold(self, df: pd.DataFrame) -> bool:
+        """
+        检查最后一天的KDJ指标是否小于阈值
         :param df: 包含KDJ指标的股票数据
-        :return: KDJ是否小于10
+        :return: KDJ是否小于阈值
         """
         if len(df) == 0:
             return False
         
-        # 检查K、D、J值是否都小于10
+        # 检查K、D、J值是否都小于阈值
         last_k = df['K'].iloc[-1]
         last_d = df['D'].iloc[-1]
         last_j = df['J'].iloc[-1]
         
-        return last_k < 10 and last_d < 10 and last_j < 10
+        return last_k < self.kdj_threshold and last_d < self.kdj_threshold and last_j < self.kdj_threshold
+    
+    def get_stock_info(self, ts_code: str) -> dict:
+        """
+        获取股票的基本信息
+        :param ts_code: 股票代码
+        :return: 股票基本信息字典
+        """
+        if self.stock_basic is None or self.stock_basic.empty:
+            self._load_stock_basic_info()
+            if self.stock_basic.empty:
+                return {}
+        
+        stock_info = self.stock_basic[self.stock_basic['ts_code'] == ts_code]
+        if stock_info.empty:
+            return {}
+        
+        return stock_info.iloc[0].to_dict()
     
     def should_buy(self, df: pd.DataFrame) -> bool:
         """
-        买入信号：同时满足所有条件
+        买入信号：这里主要用于策略回测，实际筛选逻辑在filter_stocks方法中实现
         """
-        # 注意：这里的ts_code需要从df中获取，但当前df没有包含ts_code信息
-        # 我们需要修改策略筛选逻辑，将ts_code传递给should_buy方法
-        # 为了兼容现有代码，我们先返回False，后面再修改
+        # 注意：在回测时，需要将ts_code信息传递给策略，这里简化处理
         return False
     
     def should_sell(self, df: pd.DataFrame) -> bool:
@@ -341,20 +384,82 @@ class HotPlateStrategy(BaseStrategy):
                 # 2. 准备数据，计算技术指标
                 df_with_indicators = self.prepare_data(df)
                 
-                # 3. 检查前20日涨幅是否大于20%
+                # 3. 检查前20日涨幅是否大于阈值
                 if not self.check_20d_gain(df_with_indicators):
                     continue
                 
-                # 4. 检查最后一天KDJ是否小于10
-                if not self.check_kdj_less_than_10(df_with_indicators):
+                # 4. 检查最后一天KDJ是否小于阈值
+                if not self.check_kdj_less_than_threshold(df_with_indicators):
                     continue
                 
                 # 所有条件都满足
                 result.append(ts_code)
-                print(f"{ts_code} 符合热门板块策略")
+                print(f"{ts_code} 符合热门板块KDJ策略")
                 
             except Exception as e:
                 print(f"筛选{ts_code}时出错：{e}")
+        
+        return result
+    
+    def filter_stocks_with_details(self, stocks_data: dict) -> list:
+        """
+        筛选符合策略的股票，并返回详细信息
+        :param stocks_data: 股票代码为键，DataFrame为值的字典
+        :return: 符合策略的股票详细信息列表
+        """
+        result = []
+        
+        for ts_code, df in stocks_data.items():
+            try:
+                # 1. 检查是否属于热门板块
+                if not self.is_hot_industry(ts_code):
+                    continue
+                
+                # 2. 准备数据，计算技术指标
+                df_with_indicators = self.prepare_data(df)
+                
+                # 3. 检查前20日涨幅是否大于阈值
+                gain = self.calculate_20d_gain(df_with_indicators)
+                if gain <= self.gain_threshold:
+                    continue
+                
+                # 4. 检查最后一天KDJ是否小于阈值
+                if not self.check_kdj_less_than_threshold(df_with_indicators):
+                    continue
+                
+                # 获取股票基本信息
+                stock_info = self.get_stock_info(ts_code)
+                
+                # 获取最后一天的指标数据
+                last_data = df_with_indicators.iloc[-1]
+                
+                # 构建结果字典
+                stock_result = {
+                    "ts_code": ts_code,
+                    "name": stock_info.get('name', ''),
+                    "industry": stock_info.get('industry', ''),
+                    "exchange": stock_info.get('exchange', ''),
+                    "trade_date": last_data['trade_date'].strftime('%Y-%m-%d'),
+                    "close": round(last_data['收盘价'], 2),
+                    "20d_gain": round(gain, 2),
+                    "kdj": {
+                        "K": round(last_data['K'], 2),
+                        "D": round(last_data['D'], 2),
+                        "J": round(last_data['J'], 2)
+                    },
+                    "macd": round(last_data['MACD'], 4),
+                    "rsi": round(last_data['RSI'], 2),
+                    "bbi": round(last_data['BBI'], 2)
+                }
+                
+                result.append(stock_result)
+                print(f"{ts_code} {stock_info.get('name', '')} 符合热门板块KDJ策略")
+                
+            except Exception as e:
+                print(f"筛选{ts_code}时出错：{e}")
+        
+        # 按20日涨幅降序排序
+        result.sort(key=lambda x: x['20d_gain'], reverse=True)
         
         return result
 
@@ -379,7 +484,7 @@ if __name__ == "__main__":
     # print(f"符合MACD策略的股票：{selected_stocks}")
     # 
     # # 使用热门板块策略筛选
-    # hot_strategy = HotPlateStrategy()
+    # hot_strategy = HotSectorKDJStrategy()
     # selected_stocks = hot_strategy.filter_stocks(stocks_data)
     # print(f"符合热门板块策略的股票：{selected_stocks}")
     pass
