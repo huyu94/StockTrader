@@ -20,7 +20,6 @@
 1. providers文件夹，提供数据获取的接口，目前只有tushare_api：
     1. base_provider：provider基类
     2. tushare_provider：tushare api provider
-    3. tushare限流机制：网络请求限制在同ip最多两个连接，每分钟500次请求。
 
 2. fetchers文件夹
     1. daily_kline_fetcher：获取股票的日K线行情数据, 使用pro.daily数据接口

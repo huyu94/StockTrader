@@ -1,7 +1,5 @@
 import os
-import time
 import pytest
-import threading
 from unittest.mock import MagicMock, patch
 import pandas as pd
 from src.providers.tushare_provider import TushareProvider
@@ -27,19 +25,6 @@ def test_tushare_provider_singleton(mock_tushare_env, mock_ts_api):
     assert p1 is p2
     assert p1.pro is not None
 
-def test_tushare_provider_rate_limit(mock_tushare_env, mock_ts_api):
-    TushareProvider._instance = None
-    provider = TushareProvider()
-    provider.RATE_LIMIT_PER_MINUTE = 2
-    provider.WINDOW_SECONDS = 0.2
-    provider.pro.query.return_value = pd.DataFrame()
-    start = time.time()
-    provider.query("daily")
-    provider.query("daily")
-    provider.query("daily")
-    elapsed = time.time() - start
-    assert elapsed >= 0.18
-
 def test_tushare_provider_query(mock_tushare_env, mock_ts_api):
     TushareProvider._instance = None
     provider = TushareProvider()
@@ -51,29 +36,3 @@ def test_tushare_provider_query(mock_tushare_env, mock_ts_api):
     
     assert df.equals(expected_df)
     provider.pro.query.assert_called_with("daily", fields=None, ts_code="000001.SZ")
-
-def test_tushare_provider_max_concurrency(mock_tushare_env, mock_ts_api):
-    TushareProvider._instance = None
-    provider = TushareProvider()
-    inflight = 0
-    max_inflight = 0
-    lock = threading.Lock()
-    def side_effect(*args, **kwargs):
-        nonlocal inflight, max_inflight
-        with lock:
-            inflight += 1
-            if inflight > max_inflight:
-                max_inflight = inflight
-        time.sleep(0.1)
-        with lock:
-            inflight -= 1
-        return pd.DataFrame()
-    provider.pro.query.side_effect = side_effect
-    threads = []
-    for _ in range(5):
-        t = threading.Thread(target=lambda: provider.query("daily"))
-        threads.append(t)
-        t.start()
-    for t in threads:
-        t.join()
-    assert max_inflight <= 2

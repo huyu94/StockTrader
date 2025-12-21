@@ -13,9 +13,10 @@ setup_logger()
 
 def main():
     manager = CalendarManager()
+    manager.calendar
     # logger.info(manager.sse_calendar)
     # logger.info(manager.szse_calendar)
-    logger.info(manager.calendar)
+    # logger.info()
 
 
 

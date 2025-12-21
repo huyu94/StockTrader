@@ -81,7 +81,13 @@ class AdjFactorLoader:
             return True
             
         try:
-            last_date = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S").date()
+            # 统一解析格式为 %Y-%m-%d
+            try:
+                last_date = datetime.strptime(last_updated, "%Y-%m-%d").date()
+            except ValueError:
+                # 兼容旧格式 %Y-%m-%d %H:%M:%S
+                last_date = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S").date()
+
             today = datetime.now().date()
             
             if last_date < today:

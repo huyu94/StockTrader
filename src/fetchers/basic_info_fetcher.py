@@ -7,7 +7,6 @@ from loguru import logger
 from project_var import DATA_DIR, CACHE_DIR
 from src.providers import BaseProvider, TushareProvider
 import dotenv
-
 dotenv.load_dotenv()
 
 class BasicInfoFetcher:
@@ -92,8 +91,8 @@ class BasicInfoFetcher:
             df.to_csv(path, index=False, encoding="utf-8")
             logger.info(f"股票基本信息已保存到 {path}")
             
-            # 更新缓存
-            today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 更新缓存：BasicInfo是快照数据，使用当前日期作为更新时间（只保留到日）
+            today = datetime.now().strftime("%Y-%m-%d")
             self._save_cache(today)
             
         return df

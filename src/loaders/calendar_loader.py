@@ -71,7 +71,8 @@ class CalendarLoader:
                 if not last_updated:
                     return True
                 
-                last_date = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S").date()
+                # 统一解析格式为 %Y-%m-%d
+                last_date = datetime.strptime(last_updated, "%Y-%m-%d").date()
                 today = datetime.now().date()
                 
                 if last_date < today:

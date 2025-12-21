@@ -68,10 +68,17 @@ class AdjFactorFetcher:
                 merged.to_csv(path, index=False, encoding="utf-8")
             else:
                 df.to_csv(path, index=False, encoding="utf-8")
-            # logger.info(f"{ts_code} 复权因子已保存到 {path}")
             
-            # 更新缓存
-            today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self._update_cache(ts_code, today)
+            # 更新缓存：使用数据中最大的日期作为更新日期
+            max_date = df["trade_date"].max()
+            if max_date:
+                # Tushare 返回格式通常为 YYYYMMDD，转换为 YYYY-MM-DD
+                try:
+                    updated_at = datetime.strptime(str(max_date), "%Y%m%d").strftime("%Y-%m-%d")
+                except ValueError:
+                    # 如果转换失败（比如本来就是带分隔符的），尝试直接用或保留原逻辑
+                    updated_at = str(max_date)
+                    
+                self._update_cache(ts_code, updated_at)
             
         return df

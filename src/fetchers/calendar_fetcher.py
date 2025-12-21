@@ -26,11 +26,11 @@ class CalendarFetcher:
         self.cache_dir = CACHE_DIR
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _get_cache_path(self, exchange: str) -> str:
-        return os.path.join(self.cache_dir, f"calendar_{exchange}_update.json")
+    def _get_cache_path(self) -> str:
+        return os.path.join(self.cache_dir, f"calendar_update.json")
 
-    def _load_cache(self, exchange: str) -> Dict:
-        cache_path = self._get_cache_path(exchange)
+    def _load_cache(self) -> Dict:
+        cache_path = self._get_cache_path()
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, "r", encoding="utf-8") as f:
@@ -40,15 +40,13 @@ class CalendarFetcher:
         return {}
 
     def _save_cache(self, exchange: str, updated_at: str):
-        cache_path = self._get_cache_path(exchange)
-        data = {
-            "exchange": exchange,
-            "last_updated_at": updated_at
-        }
+        cache_path = self._get_cache_path()
+        cache = self._load_cache()
+        cache[exchange] = updated_at
         try:
             with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            logger.debug(f"Cache updated for {exchange}: {data}")
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+            logger.debug(f"Cache updated for {exchange}: {updated_at}")
         except Exception as e:
             logger.error(f"Failed to save cache for {exchange}: {e}")
 
@@ -78,9 +76,14 @@ class CalendarFetcher:
             df.to_csv(path, index=False, encoding="utf-8")
             logger.info(f"交易日历已保存到 {path}")
             
-            # 更新缓存
-            today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self._save_cache(exchange, today)
+            # 更新缓存：使用数据中最大的日期作为更新日期
+            max_date = df["cal_date"].max()
+            if max_date:
+                try:
+                     updated_at = datetime.strptime(str(max_date), "%Y%m%d").strftime("%Y-%m-%d")
+                except ValueError:
+                     updated_at = str(max_date)
+                self._save_cache(exchange, updated_at)
             
         return df
 
