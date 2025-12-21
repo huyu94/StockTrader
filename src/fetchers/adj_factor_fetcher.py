@@ -70,8 +70,8 @@ class AdjFactorFetcher:
                 df.to_csv(path, index=False, encoding="utf-8")
             # logger.info(f"{ts_code} 复权因子已保存到 {path}")
             
-            # 更新缓存 (只保存到日)
-            today = datetime.now().strftime("%Y-%m-%d")
+            # 更新缓存
+            today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self._update_cache(ts_code, today)
             
         return df

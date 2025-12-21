@@ -2,7 +2,6 @@ from typing import Optional, List
 import pandas as pd
 from datetime import timedelta
 from functools import cached_property
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 from src.loaders.calendar_loader import CalendarLoader
 from src.fetchers.calendar_fetcher import CalendarFetcher
@@ -58,24 +57,9 @@ class CalendarManager:
             
         dfs = []
         
-        # 使用多线程并发获取各交易所日历
-        with ThreadPoolExecutor(max_workers=min(len(exchanges), 5)) as executor:
-            future_to_exchange = {executor.submit(self._get_calendar, exchange): exchange for exchange in exchanges}
-            
-            # 这里不需要顺序，但最终合并时顺序由 concat 处理，或者稍后排序
-            # 我们按照完成顺序收集，最后统一处理
-            results = {}
-            for future in as_completed(future_to_exchange):
-                exchange = future_to_exchange[future]
-                try:
-                    df = future.result()
-                    results[exchange] = df
-                except Exception as e:
-                    logger.error(f"Error fetching calendar for {exchange}: {e}")
-
-        # 保持输入顺序处理结果
+        # 改回串行实现，避免Tushare IP限制问题
         for exchange in exchanges:
-            df = results.get(exchange)
+            df = self._get_calendar(exchange)
             if df is not None and not df.empty:
                 # 假设df列为 [exchange, cal_date, is_open]
                 # 重命名 is_open 为对应的 exchange 名称

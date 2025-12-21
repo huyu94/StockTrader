@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import timedelta
 from loguru import logger
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.loaders.adj_factor_loader import AdjFactorLoader
 from src.fetchers.adj_factor_fetcher import AdjFactorFetcher
 
@@ -38,24 +37,18 @@ class AdjFactorManager:
 
     def batch_get_adj_factors(self, ts_codes: List[str]) -> Dict[str, pd.DataFrame]:
         """
-        批量获取复权因子 (并发版)
+        批量获取复权因子
         
         :param ts_codes: 股票代码列表
         :return: 字典 {ts_code: DataFrame}
         """
         results = {}
-        max_workers = 10 # 线程数，可根据需要调整
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_code = {executor.submit(self.get_adj_factor, ts_code): ts_code for ts_code in ts_codes}
-            
-            for future in tqdm(as_completed(future_to_code), total=len(ts_codes), desc="Fetching adj factors"):
-                ts_code = future_to_code[future]
-                try:
-                    df = future.result()
-                    if df is not None and not df.empty:
-                        results[ts_code] = df
-                except Exception as e:
-                    logger.error(f"Error getting adj factor for {ts_code}: {e}")
-                    
+        # 改回串行实现，避免Tushare IP限制问题
+        for ts_code in tqdm(ts_codes, desc="Fetching adj factors"):
+            try:
+                df = self.get_adj_factor(ts_code)
+                if df is not None and not df.empty:
+                    results[ts_code] = df
+            except Exception as e:
+                logger.error(f"Error getting adj factor for {ts_code}: {e}")
         return results
