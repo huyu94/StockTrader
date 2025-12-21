@@ -1,6 +1,8 @@
 from typing import Optional, List
 import pandas as pd
+from datetime import timedelta
 from functools import cached_property
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 from src.loaders.calendar_loader import CalendarLoader
 from src.fetchers.calendar_fetcher import CalendarFetcher
@@ -15,14 +17,21 @@ class CalendarManager:
         
     def _get_calendar(self, exchange: str) -> pd.DataFrame:
         if self.loader.check_update_needed(exchange):
-            logger.info(f"更新交易所 {exchange} 的交易日历...")
+            logger.info(f"Updating calendar for {exchange}...")
+            
             # 强制指定文件名以符合 Loader 的预期
             filename = f"{exchange}_trade_calendar.csv"
+            
+            # 计算默认日期范围：近一年
+            now = pd.Timestamp.now()
+            end_date = now.strftime("%Y%m%d")
+            start_date = (now - timedelta(days=365)).strftime("%Y%m%d")
+            
             # fetcher 会负责拉取、保存文件、更新 cache
-            df = self.fetcher.fetch(start_date=None, end_date=None, exchange=exchange, filename=filename, save_local=True)
+            df = self.fetcher.fetch(start_date=start_date, end_date=end_date, exchange=exchange, filename=filename, save_local=True)
             return df
         else:
-            logger.debug(f"从本地加载交易所 {exchange} 的交易日历")
+            logger.debug(f"Loading calendar from local for {exchange}")
             return self.loader.load(exchange)
 
     @cached_property
@@ -40,6 +49,7 @@ class CalendarManager:
         获取合并后的交易日历 (宽表格式)
         Index: cal_date
         Columns: [exchange1, exchange2, ...]，值为bool表示是否开市
+        
         注意：使用 outer join 取并集。
         如果某一方没有数据，则认为该日不开市 (False)。
         """
@@ -47,9 +57,25 @@ class CalendarManager:
             exchanges = ["SSE", "SZSE"]
             
         dfs = []
+        
+        # 使用多线程并发获取各交易所日历
+        with ThreadPoolExecutor(max_workers=min(len(exchanges), 5)) as executor:
+            future_to_exchange = {executor.submit(self._get_calendar, exchange): exchange for exchange in exchanges}
+            
+            # 这里不需要顺序，但最终合并时顺序由 concat 处理，或者稍后排序
+            # 我们按照完成顺序收集，最后统一处理
+            results = {}
+            for future in as_completed(future_to_exchange):
+                exchange = future_to_exchange[future]
+                try:
+                    df = future.result()
+                    results[exchange] = df
+                except Exception as e:
+                    logger.error(f"Error fetching calendar for {exchange}: {e}")
+
+        # 保持输入顺序处理结果
         for exchange in exchanges:
-            # 统一使用 self._get_calendar 获取最新数据
-            df = self._get_calendar(exchange)
+            df = results.get(exchange)
             if df is not None and not df.empty:
                 # 假设df列为 [exchange, cal_date, is_open]
                 # 重命名 is_open 为对应的 exchange 名称
