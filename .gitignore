@@ -13,6 +13,9 @@ __pycache__/
 /data/
 /visualizations/
 
+# output
+/output/
+
 # Logs
 logs/
 *.log

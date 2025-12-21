@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
 from src.indicators.technical_indicators import TechnicalIndicators
-from src.data_fetch.column_mappings import DAILY_COLUMN_MAPPINGS
+from src.data.common.column_mappings import DAILY_COLUMN_MAPPINGS
 
 class BaseStrategy(ABC):
     def __init__(self):
@@ -218,7 +218,7 @@ class HotSectorKDJStrategy(BaseStrategy):
         # KDJ阈值，默认10
         self.kdj_threshold = kdj_threshold
         
-        from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher
+        from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher
         self.fetcher = StockDailyKLineFetcher()
         # 加载所有股票的基本信息
         self.stock_basic = None

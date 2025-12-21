@@ -5,18 +5,25 @@ from datetime import datetime
 from tqdm import tqdm
 import pandas as pd
 from loguru import logger
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher
 from src.strategies.registry import get_strategy, available_strategies
 from src.strategies.result_output import StockResultOutput
-from project_var import OUTPUT_DIR, DATA_DIR
+from project_var import OUTPUT_DIR, DATA_DIR, PROJECT_DIR
 
-def run(strategy_name: str, industries: str = None, limit: int = None, debug: bool = False):
+def run(strategy_name: str, industries: str = None, limit: int = None, workers: int = 8):
     strategy = get_strategy(strategy_name)
     fetcher = StockDailyKLineFetcher(provider_name="tushare")
     output = StockResultOutput(output_dir=OUTPUT_DIR)
+    logs_dir = os.path.join(PROJECT_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = os.path.join(logs_dir, f"run_strategies_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    logger.remove()
+    logger.add(sys.stdout, level="INFO")
+    logger.add(log_file, level="DEBUG", encoding="utf-8")
     basic_path = os.path.join(DATA_DIR, "stock_basic_info.csv")
     if not os.path.exists(basic_path):
         fetcher.get_stock_basic_info(save_local=True)
@@ -30,54 +37,65 @@ def run(strategy_name: str, industries: str = None, limit: int = None, debug: bo
     if limit and limit > 0:
         codes = codes[:limit]
     selected = []
-    debug_rows = []
-    for ts_code in tqdm(codes, desc="运行策略", unit="只"):
-        df = fetcher.load_local_data(ts_code)
+    def work(code: str):
+        df = fetcher.load_local_data(code)
         if df is None or df.empty or len(df) < 15:
-            continue
+            return None, None
         try:
-            if strategy.check_stock(ts_code, df):
-                info = strategy.explain(ts_code, df)
-                selected.append(info)
-            if debug and hasattr(strategy, "debug_check"):
+            picked = None
+            if strategy.check_stock(code, df):
+                picked = strategy.explain(code, df)
+            try:
+                df_pre = None
                 try:
-                    row = strategy.debug_check(ts_code, df)
-                    debug_rows.append(row)
-                except Exception as e:
-                    logger.error(f"调试失败 {ts_code}: {e}")
-                    trd = df['trade_date'].iloc[-1].strftime('%Y-%m-%d') if 'trade_date' in df.columns and len(df) > 0 else ''
-                    debug_rows.append({"ts_code": ts_code, "trade_date": trd, "error": str(e), "passed": False})
+                    df_pre = strategy.preprocess(df)
+                except Exception:
+                    df_pre = None
+                trd = df['trade_date'].iloc[-1].strftime('%Y-%m-%d') if 'trade_date' in df.columns and len(df) > 0 else ''
+                if df_pre is not None and not df_pre.empty:
+                    close = float(df_pre['收盘价'].iloc[-1]) if '收盘价' in df_pre.columns else 0.0
+                    j_prev = float(df_pre['J'].iloc[-2]) if 'J' in df_pre.columns and len(df_pre) >= 2 else float('nan')
+                    j_curr = float(df_pre['J'].iloc[-1]) if 'J' in df_pre.columns else float('nan')
+                else:
+                    close = 0.0
+                    j_prev = float('nan')
+                    j_curr = float('nan')
+                passed = picked is not None
+                logger.debug(f"{code},{trd},close={close},J_prev={j_prev},J={j_curr},passed={passed}")
+            except Exception:
+                pass
+            return picked, None
         except Exception:
-            continue
+            return None, None
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(work, c): c for c in codes}
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="运行策略(并行)", unit="只"):
+            picked, _ = fut.result()
+            if picked:
+                selected.append(picked)
     prefix = f"run_strategies_{strategy_name}_{datetime.now().strftime('%Y%m%d')}"
     output.print_result([{
-        "ts_code": s["ts_code"],
+        "ts_code": s.get("ts_code", ""),
         "name": "",
         "industry": "",
         "exchange": "",
-        "trade_date": s["trade_date"],
-        "close": s["close"],
+        "trade_date": s.get("trade_date", ""),
+        "close": s.get("close", 0.0),
         "20d_gain": 0.0,
-        "kdj": {"K": 0.0, "D": 0.0, "J": s["kdj_j"]},
-        "macd": s["macd_hist"],
+        "kdj": {"K": 0.0, "D": 0.0, "J": s.get("kdj_j", 0.0)},
+        "macd": s.get("macd_hist", 0.0),
         "rsi": "",
         "bbi": ""
     } for s in selected], max_items=50)
     paths = output.save_result(selected, formats=["csv", "json"], filename_prefix=prefix)
     for p in paths:
         print(p)
-    if debug and debug_rows:
-        df_dbg = pd.DataFrame(debug_rows)
-        dbg_name = f"debug_{strategy_name}_{datetime.now().strftime('%Y%m%d')}.csv"
-        dbg_path = os.path.join(OUTPUT_DIR, dbg_name)
-        df_dbg.to_csv(dbg_path, index=False, encoding='utf-8')
-        print(dbg_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--strategy", type=str, default="少妇战法", choices=available_strategies())
     parser.add_argument("--industries", type=str, default=None)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
-    run(args.strategy, args.industries, args.limit, args.debug)
+    run(args.strategy, args.industries, args.limit, args.workers)

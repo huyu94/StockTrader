@@ -1,10 +1,10 @@
 from typing import Any
+# from src.strategies.shaofu_strategy import ShaofuStrategy
 from src.strategies.shaofu_strategy import ShaofuStrategy
-from src.strategies.shaofu_simple_strategy import ShaofuSimpleStrategy
 
 _REGISTRY = {
     "少妇战法": ShaofuStrategy,
-    "少妇战法（简化）": ShaofuSimpleStrategy,
+    # "少妇战法（简化）": ShaofuSimpleStrategy,
 }
 
 def get_strategy(name: str) -> Any:
