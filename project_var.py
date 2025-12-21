@@ -15,12 +15,9 @@ PROJECT_DIR = os.path.dirname(CURRENT_FILE)
 # 数据存储目录
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
 
-# 缓存目录
-CACHE_DIR = os.path.join(PROJECT_DIR, "cache")
-
 # 输出目录
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
 
 # 确保所有目录存在
-for dir_path in [DATA_DIR, CACHE_DIR, OUTPUT_DIR]:
+for dir_path in [DATA_DIR, OUTPUT_DIR]:
     os.makedirs(dir_path, exist_ok=True)

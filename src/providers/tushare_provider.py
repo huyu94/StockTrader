@@ -82,7 +82,15 @@ class TushareProvider(BaseProvider):
                 return df
 
     
-    def pro_bar(self, ts_code: str, start_date: str, end_date: str, adj: str = "qfq", freq: str = "D", factors: list = ["tor","vr"], ) -> pd.DataFrame:
+    def pro_bar(self, 
+                ts_code: str, 
+                start_date: str, 
+                end_date: str, 
+                adj: str = "qfq", 
+                freq: str = "D", 
+                factors: list = ["tor","vr"], 
+                adjfactor:bool = True
+                ) -> pd.DataFrame:
         """
         使用 pro_bar API 获取股票K线数据（更快，一次获取全部历史）
         优势：一次调用可以获取单只股票的全部历史数据，比多次调用 pro.daily 更快
@@ -106,7 +114,7 @@ class TushareProvider(BaseProvider):
                     end_date=end_date,
                     freq=freq,
                     factors=factors,
-                    adj_factors=True,
+                    adjfactor=adjfactor,
                     api=self.pro
                 )
                 

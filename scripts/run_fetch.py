@@ -18,50 +18,37 @@ def main():
     """
     全量数据爬取任务调度脚本
     
-    执行顺序：
+    调用 Manager.update_all() 一键更新所有数据：
     1. 股票基本信息 (BasicInfo)
     2. 交易日历 (Calendar)
     3. 日线行情 (DailyKline)
-    4. 复权因子 (AdjFactor) - 暂时禁用
+    
+    更新模式：
+    - code模式：使用 pro_bar API 按股票代码获取过去一年的数据
+      * 遍历所有股票，每只股票调用一次 pro_bar 获取全部历史数据
+      * 适合首次全量爬取，数据完整
+    - date模式：使用 pro.daily API 按交易日获取所有股票数据
+      * 遍历所有交易日，每个交易日调用一次 pro.daily 获取全市场数据
+      * 适合增量更新，补充特定日期的数据
     
     策略：
-    - 直接暴力爬取近一年的股票日k线前复权数据
     - 使用SQLite数据库存储，批量写入性能优化
+    - 多线程并发插入数据库，提升写入性能
     - 自动处理依赖关系
     """
     parser = argparse.ArgumentParser(description='股票数据爬取脚本')
+    parser.add_argument('--mode', type=str, default='code', choices=['code', 'date'], 
+                        help='爬取模式: code=按股票代码爬取(使用pro_bar,默认), date=按交易日爬取(使用pro.daily)')
+    parser.add_argument('--start-date', type=str, default=None,
+                        help='开始日期，格式YYYYMMDD，默认近一年')
     args = parser.parse_args()
     
     try:
-        logger.info(f"🚀 Starting master data fetch job.")
-        logger.info(f"📅 Time range: 近一年数据")
-        logger.info(f"📊 Update mode: Full update by stock code (暴力爬取)")
-        logger.info(f"💾 Storage mode: SQLite (fast batch writes)")
-        
         # 初始化统一的数据管理器（全部使用SQLite）
         data_manager = Manager()
         
-        # 1. Basic Info
-        logger.info("Step 1/3: Fetching Basic Info...")
-        data_manager.update_basic_info()
-        stocks = data_manager.all_basic_info
-        if stocks is not None and not stocks.empty:
-            logger.success(f"✅ Basic Info updated. Total stocks: {len(stocks)}")
-        else:
-            logger.warning("⚠️ Basic Info updated but no stocks found in database")
-        
-        # 2. Calendar
-        logger.info("Step 2/3: Fetching Trade Calendar...")
-        data_manager.update_calendar()
-        logger.success("✅ Trade Calendar updated.")
-        
-        # 3. Daily Kline - 直接调用update_daily_kline，总是执行全量更新
-        logger.info("Step 3/3: Fetching Daily Kline Data...")
-        data_manager.update_daily_kline()
-        logger.success("✅ Daily Kline Data updated.")
-        
-        
-        logger.success("🎉 All data fetch tasks completed successfully.")
+        # 一键更新所有数据
+        data_manager.update_all(mode=args.mode, start_date=args.start_date)
         
     except KeyboardInterrupt:
         logger.warning("⚠️ Job interrupted by user.")

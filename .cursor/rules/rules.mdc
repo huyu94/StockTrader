@@ -1,0 +1,20 @@
+---
+alwaysApply: true
+---
+
+# 环境管理
+1. 用uv来管理python, uv run xx.py来运行项目， uv add来添加依赖
+
+# 包
+1. 使用loguru来记录日志
+2. 使用pandas来处理数据
+
+
+# 测试
+1. 使用pytests
+2. 所有tests文件都写到tests目录下，每个test文件都以test_开头，例如test_fetch.py
+
+
+# 关于文档
+1. 在和你对话的过程中，需要你将我的需求整理更新到这个文档中。
+2. 把整个项目的构建思路、功能描述、数据结构，都写到README.md文件中。

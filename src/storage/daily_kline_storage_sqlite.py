@@ -116,7 +116,6 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
             logger.error(f"Failed to write data for {ts_code}: {e}")
             return False
     
-    
     def write_batch(self, df: pd.DataFrame) -> int:
         """
         批量写入多只股票的数据（高性能）
@@ -129,12 +128,16 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
             if df.empty:
                 return 0
             
-            # 统一 trade_date 格式
+            # 统一 trade_date 格式为 DATE 类型（YYYY-MM-DD）
             df_copy = df.copy()
             if pd.api.types.is_datetime64_any_dtype(df_copy["trade_date"]):
-                df_copy["trade_date"] = df_copy["trade_date"].dt.strftime("%Y%m%d")
+                df_copy["trade_date"] = df_copy["trade_date"].dt.strftime("%Y-%m-%d")
             else:
+                # 如果是 YYYYMMDD 格式，转换为 YYYY-MM-DD
                 df_copy["trade_date"] = df_copy["trade_date"].astype(str)
+                df_copy["trade_date"] = df_copy["trade_date"].apply(
+                    lambda x: f"{x[:4]}-{x[4:6]}-{x[6:8]}" if len(x) == 8 and x.isdigit() else x
+                )
             
             # 确保有ts_code列
             if "ts_code" not in df_copy.columns:
