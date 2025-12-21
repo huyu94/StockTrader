@@ -14,9 +14,3 @@ DAILY_COLUMN_MAPPINGS = {
     'amount': '成交额'
 }
 
-# 复权因子字段映射
-ADJ_FACTOR_COLUMN_MAPPINGS = {
-    'trade_date': '日期',
-    'adj_factor': '复权因子'
-}
-

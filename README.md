@@ -101,25 +101,38 @@ DATA_PATH=data/
 
 ## 数据下载
 
-### 1. 运行数据下载脚本
+### 1. 快速补全近一年缺失数据
 
-#### 方法一：直接运行数据获取器模块
+- 说明：`scripts/run_fetcher.py` 已重构为“交易日优先 + 批量抓取”，先计算近一年“交易日缺失表格”，若某日缺失股票数超过阈值（默认 1000），直接用 `pro.daily` 抓该日全部股票，再对剩余缺口做单股补齐。
+- 运行示例：
+```bash
+uv run scripts/run_fetcher.py --provider tushare --workers 8 --threshold 1000
+```
+  
+- 复权因子同理：`scripts/run_adj_factor_fetcher.py` 采用同样策略，优先在“大缺口日”用 `pro.adj_factor(trade_date=...)` 抓该日所有股票的复权因子，再按股票维度补齐余量。
+```bash
+uv run scripts/run_adj_factor_fetcher.py --provider tushare --workers 8 --threshold 1000
+```
+  
+### 2. 运行数据下载脚本
+
+#### 方法一：直接运行数据获取器模块（示例路径需按现有模块调整）
 
 ```bash
 # 获取单只股票数据（例如：000001.SZ）
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher; fetcher = StockDataFetcher(); fetcher.get_daily_k_data('000001.SZ', start_date='20250101', end_date='20251231')"
+uv run python -c "from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); fetcher.fetch_one('000001.SZ', start_date='20250101', end_date='20251231')"
 
 # 批量获取多只股票数据
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); fetcher.get_multi_stocks_daily_k(['000001.SZ', '600000.SH'], start_date='20250101', end_date='20251231')"
+uv run python -c "from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); fetcher.fetch_batch(['000001.SZ', '600000.SH'], start_date='20250101', end_date='20251231')"
 
 # 爬取最近一年所有股票数据
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.fetch_all_stocks_last_year()"
+uv run python -c "from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); print('略')"
 
 # 更新单只股票数据
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.update_stock_data('000001.SZ')"
+uv run python -c "from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); fetcher.fetch_one('000001.SZ')"
 
 # 更新所有股票数据
-uv run python -c "from src.data_fetch.stock_data_fetcher import StockDataFetcher; fetcher = StockDataFetcher(); fetcher.update_all_stocks_data()"
+uv run python -c "from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher; fetcher = StockDailyKLineFetcher(); print('略')"
 ```
 
 #### 方法二：使用测试脚本

@@ -9,70 +9,73 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data.fetchers.stock_fetcher import StockDailyKLineFetcher
+"""
+策略运行脚本流程：
+1) 初始化全局日志
+2) 获取策略实例与数据入口（基础信息、数据加载器）
+3) 确保并读取基础信息，构建代码列表与名称映射
+4) 并行遍历股票：
+   - 加载本地日线数据
+   - 调用策略的 check_stock 命中则调用 explain 生成记录
+5) 输出结果到终端与 CSV/JSON
+"""
+
+from src.data.fetchers.base_info_fetcher import StockBaseInfoFetcher
+from src.data.loaders.stock_loader import StockLoader
 from src.strategies.registry import get_strategy, available_strategies
 from src.strategies.result_output import StockResultOutput
 from project_var import OUTPUT_DIR, DATA_DIR, PROJECT_DIR
+from config import setup_logger
+from src.data.providers.tushare_provider import TushareProvider
 
 def run(strategy_name: str, industries: str = None, limit: int = None, workers: int = 8):
+    # 1) 初始化日志（终端 INFO，文件 DEBUG）
+    setup_logger()
     strategy = get_strategy(strategy_name)
-    fetcher = StockDailyKLineFetcher(provider_name="tushare")
+    shared_provider = TushareProvider()
+    base_info = StockBaseInfoFetcher(provider_name="tushare", provider=shared_provider)
+    loader = StockLoader(provider_name="tushare", provider=shared_provider)
     output = StockResultOutput(output_dir=OUTPUT_DIR)
-    logs_dir = os.path.join(PROJECT_DIR, "logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    log_file = os.path.join(logs_dir, f"run_strategies_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    logger.remove()
-    logger.add(sys.stdout, level="INFO")
-    logger.add(log_file, level="DEBUG", encoding="utf-8")
+    # 2) 确保基础信息存在（首次运行会落盘）
     basic_path = os.path.join(DATA_DIR, "stock_basic_info.csv")
     if not os.path.exists(basic_path):
-        fetcher.get_stock_basic_info(save_local=True)
-    codes = fetcher.get_all_stock_codes()
+        base_info.get_stock_basic_info(exchanges=["SSE", "SZSE"], save_local=True)
+    basic_df = pd.read_csv(basic_path)
+    # 3) 读取代码列表并按行业过滤（可选）
+    codes = base_info.get_all_stock_codes()
     if industries:
         inds = [i.strip() for i in industries.split(',') if i.strip()]
-        df = pd.read_csv(basic_path)
-        if 'industry' in df.columns:
-            allowed = set(df[df['industry'].fillna('').apply(lambda x: any(k.lower() in str(x).lower() for k in inds))]['ts_code'].tolist())
+        if 'industry' in basic_df.columns:
+            allowed = set(basic_df[basic_df['industry'].fillna('').apply(lambda x: any(k.lower() in str(x).lower() for k in inds))]['ts_code'].tolist())
             codes = [c for c in codes if c in allowed]
     if limit and limit > 0:
         codes = codes[:limit]
+    # 4) 构建名称映射，便于结果展示
+    name_map = {}
+    if 'ts_code' in basic_df.columns and 'name' in basic_df.columns:
+        name_map = dict(zip(basic_df['ts_code'], basic_df['name']))
     selected = []
+    # 5) 并行工作函数：加载本地数据 → 策略判定 → 生成记录
     def work(code: str):
-        df = fetcher.load_local_data(code)
+        df = loader.load(code)
         if df is None or df.empty or len(df) < 15:
             return None, None
         try:
             picked = None
             if strategy.check_stock(code, df):
                 picked = strategy.explain(code, df)
-            try:
-                df_pre = None
-                try:
-                    df_pre = strategy.preprocess(df)
-                except Exception:
-                    df_pre = None
-                trd = df['trade_date'].iloc[-1].strftime('%Y-%m-%d') if 'trade_date' in df.columns and len(df) > 0 else ''
-                if df_pre is not None and not df_pre.empty:
-                    close = float(df_pre['收盘价'].iloc[-1]) if '收盘价' in df_pre.columns else 0.0
-                    j_prev = float(df_pre['J'].iloc[-2]) if 'J' in df_pre.columns and len(df_pre) >= 2 else float('nan')
-                    j_curr = float(df_pre['J'].iloc[-1]) if 'J' in df_pre.columns else float('nan')
-                else:
-                    close = 0.0
-                    j_prev = float('nan')
-                    j_curr = float('nan')
-                passed = picked is not None
-                logger.debug(f"{code},{trd},close={close},J_prev={j_prev},J={j_curr},passed={passed}")
-            except Exception:
-                pass
             return picked, None
         except Exception:
             return None, None
+    # 6) 并行执行遍历
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(work, c): c for c in codes}
         for fut in tqdm(as_completed(futures), total=len(futures), desc="运行策略(并行)", unit="只"):
             picked, _ = fut.result()
             if picked:
                 selected.append(picked)
+    # 7) 增补名称并输出结果
+    selected = [{**s, "name": name_map.get(s.get("ts_code", ""), "")} for s in selected]
     prefix = f"run_strategies_{strategy_name}_{datetime.now().strftime('%Y%m%d')}"
     output.print_result([{
         "ts_code": s.get("ts_code", ""),

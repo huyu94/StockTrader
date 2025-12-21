@@ -5,11 +5,14 @@ from src.data.providers.akshare_provider import AkShareProvider
 from src.data.calendars.calendar_cache import load as cache_load, save as cache_save
 
 class CalendarFetcher:
-    def __init__(self, provider_name: str = "tushare"):
-        if provider_name == "akshare":
-            self.provider: BaseProvider = AkShareProvider()
+    def __init__(self, provider_name: str = "tushare", provider: BaseProvider | None = None):
+        if provider is not None:
+            self.provider: BaseProvider = provider
         else:
-            self.provider: BaseProvider = TushareProvider()
+            if provider_name == "akshare":
+                self.provider: BaseProvider = AkShareProvider()
+            else:
+                self.provider: BaseProvider = TushareProvider()
 
     def fetch(self, start_date: str, end_date: str) -> pd.DataFrame:
         df = self.provider.get_trade_calendar(start_date=start_date, end_date=end_date)

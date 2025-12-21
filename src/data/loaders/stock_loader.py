@@ -6,6 +6,7 @@ from typing import Tuple, List
 from project_var import DATA_DIR
 from src.data.calendars.calendar_cache import load as cache_load
 from src.data.calendars.calendar_fetcher import CalendarFetcher
+from src.data.providers.base import BaseProvider
 
 @dataclass
 class MissingInfo:
@@ -15,8 +16,8 @@ class MissingInfo:
     reason: str
 
 class StockLoader:
-    def __init__(self, provider_name: str = "tushare"):
-        self.calendar_fetcher = CalendarFetcher(provider_name=provider_name)
+    def __init__(self, provider_name: str = "tushare", provider: BaseProvider | None = None):
+        self.calendar_fetcher = CalendarFetcher(provider_name=provider_name, provider=provider)
 
     def load(self, ts_code: str) -> pd.DataFrame | None:
         path = os.path.join(DATA_DIR, "stock_data", f"{ts_code}.csv")
