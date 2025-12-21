@@ -20,29 +20,30 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 5) 输出结果到终端与 CSV/JSON
 """
 
-from src.data.fetchers.base_info_fetcher import StockBaseInfoFetcher
-from src.data.loaders.stock_loader import StockLoader
+from src.managers.data_manager import Manager
 from src.strategies.registry import get_strategy, available_strategies
 from src.strategies.result_output import StockResultOutput
 from project_var import OUTPUT_DIR, DATA_DIR, PROJECT_DIR
 from config import setup_logger
-from src.data.providers.tushare_provider import TushareProvider
 
 def run(strategy_name: str, industries: str = None, limit: int = None, workers: int = 8):
     # 1) 初始化日志（终端 INFO，文件 DEBUG）
     setup_logger()
     strategy = get_strategy(strategy_name)
-    shared_provider = TushareProvider()
-    base_info = StockBaseInfoFetcher(provider_name="tushare", provider=shared_provider)
-    loader = StockLoader(provider_name="tushare", provider=shared_provider)
+    
+    # 使用统一的 Manager
+    data_manager = Manager()
+    
     output = StockResultOutput(output_dir=OUTPUT_DIR)
     # 2) 确保基础信息存在（首次运行会落盘）
-    basic_path = os.path.join(DATA_DIR, "stock_basic_info.csv")
+    basic_path = os.path.join(DATA_DIR, "basic_info.csv") # Manager uses SQLite database now
     if not os.path.exists(basic_path):
-        base_info.get_stock_basic_info(exchanges=["SSE", "SZSE"], save_local=True)
-    basic_df = pd.read_csv(basic_path)
+        data_manager.update_basic_info()
+    
+    basic_df = data_manager.all_basic_info
     # 3) 读取代码列表并按行业过滤（可选）
-    codes = base_info.get_all_stock_codes()
+    codes = basic_df["ts_code"].tolist() if basic_df is not None else []
+    
     if industries:
         inds = [i.strip() for i in industries.split(',') if i.strip()]
         if 'industry' in basic_df.columns:
@@ -52,12 +53,13 @@ def run(strategy_name: str, industries: str = None, limit: int = None, workers: 
         codes = codes[:limit]
     # 4) 构建名称映射，便于结果展示
     name_map = {}
-    if 'ts_code' in basic_df.columns and 'name' in basic_df.columns:
+    if basic_df is not None and 'ts_code' in basic_df.columns and 'name' in basic_df.columns:
         name_map = dict(zip(basic_df['ts_code'], basic_df['name']))
     selected = []
     # 5) 并行工作函数：加载本地数据 → 策略判定 → 生成记录
     def work(code: str):
-        df = loader.load(code)
+        # 使用 Manager 的 storage 直接读取 (或者 data_manager.daily_storage.load(code))
+        df = data_manager.daily_storage.load(code)
         if df is None or df.empty or len(df) < 15:
             return None, None
         try:
