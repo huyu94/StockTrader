@@ -37,7 +37,13 @@ from src.fetchers.daily_kline_fetcher import DailyKlineFetcher
 from src.fetchers.basic_info_fetcher import BasicInfoFetcher
 from src.fetchers.calendar_fetcher import CalendarFetcher
 
-# Matrix Managers
+# Model
+from src.models.stock_models import (
+    DailyKlineData,
+    BasicInfoData,
+    TradeCalendarData,
+    validate_daily_kline_dataframe
+)
 
 
 class Manager:
@@ -317,7 +323,29 @@ class Manager:
         1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票过去一年的数据
         2. 返回 DataFrame
         """
-        return self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        df = self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        validated_df, failed_records = validate_daily_kline_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
+            for failed_record in failed_records:
+                logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
+        return validated_df
+
+    def _fetch_kline_data_by_date(self, trade_date: str) -> pd.DataFrame:
+        """
+        获取指定交易日的所有股票日线行情数据
+        
+        流程：
+        1. 调用 fetcher.fetch_daily_by_date() 使用 pro.daily 获取该交易日的所有股票数据
+        2. 返回 DataFrame
+        """
+        df = self.daily_fetcher.fetch_daily_by_date(trade_date=trade_date)
+        validated_df, failed_records = validate_daily_kline_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
+            for failed_record in failed_records:
+                logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
+        return validated_df
 
     def _save_kline_data_to_sql(self, df: pd.DataFrame) -> bool:
         """

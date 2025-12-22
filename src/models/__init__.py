@@ -12,13 +12,11 @@ from .stock_models import (
     DailyKlineData,
     BasicInfoData,
     TradeCalendarData,
-    StockDataBatch,
 )
 
 __all__ = [
     "DailyKlineData",
     "BasicInfoData",
     "TradeCalendarData",
-    "StockDataBatch",
 ]
 
