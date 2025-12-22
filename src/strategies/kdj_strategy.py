@@ -62,10 +62,6 @@ class KDJStrategy(BaseStrategy):
         
         # 确保数据按日期排序
         df_copy = df_copy.sort_values('trade_date').reset_index(drop=True)
-        
-        # ========== 计算KDJ指标（使用基类方法）==========
-        df_copy = self.calculate_kdj(df_copy, period=self.kdj_period)
-        
         # ========== 计算成交量指标 ==========
         # 计算前N日的成交量最大值
         df_copy['vol_max_20'] = df_copy['vol'].rolling(window=self.vol_period).max()
@@ -88,7 +84,7 @@ class KDJStrategy(BaseStrategy):
 
 
     
-    def _check_stock(self, ts_code: str, df: pd.DataFrame) -> bool:
+    def _check_stock(self, ts_code: str, df: pd.DataFrame, target_date: str = None) -> bool:
         """
         判断是否符合买入条件
         
@@ -98,6 +94,7 @@ class KDJStrategy(BaseStrategy):
         
         :param ts_code: 股票代码
         :param df: 已预处理的数据DataFrame
+        :param target_date: 目标检查日期（YYYYMMDD格式），如果为None则检查最新交易日
         :return: True表示符合买入条件
         """
         # 需要至少vol_period个交易日的数据
@@ -110,33 +107,56 @@ class KDJStrategy(BaseStrategy):
             logger.debug(f"{ts_code}: 数据不足，无法计算KDJ指标")
             return False
         
-        latest = df.iloc[-1]
+        # 根据 target_date 筛选目标数据
+        if target_date is not None:
+            # 确保 trade_date 是 datetime 类型
+            if not pd.api.types.is_datetime64_any_dtype(df['trade_date']):
+                df = df.copy()
+                df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
+            
+            # 转换为字符串格式进行比较
+            df['trade_date_str'] = df['trade_date'].dt.strftime('%Y%m%d')
+            
+            # 筛选目标日期的数据
+            target_data = df[df['trade_date_str'] == target_date]
+            
+            if target_data.empty:
+                logger.warning(f"{ts_code}: 未找到 {target_date} 的数据，可能不是交易日")
+                return False
+            
+            target_row = target_data.iloc[0]
+        else:
+            # 如果没有指定目标日期，使用最新的交易日
+            target_row = df.iloc[-1]
         
         # 检查J值是否有效
-        if pd.isna(latest.get('kdj_j')):
+        if pd.isna(target_row.get('kdj_j')):
             logger.debug(f"{ts_code}: KDJ的J值无效")
             return False
         
         # 检查成交量数据是否有效
-        if pd.isna(latest.get('vol')) or pd.isna(latest.get('vol_max_20')):
+        if pd.isna(target_row.get('vol')) or pd.isna(target_row.get('vol_max_20')):
             logger.debug(f"{ts_code}: 成交量数据无效")
             return False
         
         # 条件1：KDJ的J值 <= 阈值（超卖信号）
-        j_value = latest.get('kdj_j', 999)
+        j_value = target_row.get('kdj_j', 999)
         condition1 = j_value <= self.j_threshold
         
         # 条件2：当前成交量 < 前20日最大成交量的1/2（缩量信号）
-        vol_ratio = latest.get('vol_ratio', 1.0)
+        vol_ratio = target_row.get('vol_ratio', 1.0)
         condition2 = vol_ratio < 0.5
         
         # 两个条件都必须满足
         result = condition1 and condition2
         
+        # 获取交易日期字符串
+        check_date_str = target_date if target_date else "最新交易日"
+        
         # 添加详细的调试信息
         if result:
-            logger.info(
-                f"{ts_code}: ✓ 符合少妇战法条件 - "
+            logger.debug(
+                f"{ts_code} ({check_date_str}): ✓ 符合少妇战法条件 - "
                 f"J值={j_value:.2f} <= {self.j_threshold}, "
                 f"成交量比例={vol_ratio:.2%} < 50%"
             )
@@ -148,7 +168,7 @@ class KDJStrategy(BaseStrategy):
             if not condition2:
                 reasons.append(f"成交量比例={vol_ratio:.2%} >= 50%")
             logger.debug(
-                f"{ts_code}: ✗ 不符合条件 - " + ", ".join(reasons)
+                f"{ts_code} ({check_date_str}): ✗ 不符合条件 - " + ", ".join(reasons)
             )
         
         return result
@@ -171,23 +191,7 @@ class KDJStrategy(BaseStrategy):
         current_vol = float(latest.get('vol', 0))
         
         result = {
-            "ts_code": ts_code,
-            "trade_date": str(latest.get('trade_date', '')),
-            "close": float(latest.get('close', 0)),
-            "kdj": {
-                "K": k_value,
-                "D": d_value,
-                "J": j_value
-            },
-            "volume": {
-                "current": current_vol,
-                "max_20d": vol_max_20,
-                "ratio": vol_ratio
-            },
-            "conditions": {
-                "kdj_oversold": bool(latest.get('kdj_oversold', False)),
-                "vol_shrink": bool(latest.get('vol_shrink', False))
-            },
+           
             "reason": (
                 f"KDJ的J值={j_value:.2f} <= {self.j_threshold}（超卖信号），"
                 f"成交量={vol_ratio:.2%} < 50%（缩量信号）"

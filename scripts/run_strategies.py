@@ -143,7 +143,6 @@ def save_results(results: list, filename_prefix: str = "kdj_strategy"):
             csv_data.append(row)
         
         df = pd.DataFrame(csv_data)
-        df.to_csv(csv_path, index=False, encoding='utf-8-sig')
         saved_paths.append(csv_path)
         logger.info(f"结果已保存到CSV: {csv_path}")
     except Exception as e:

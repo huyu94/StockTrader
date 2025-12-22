@@ -58,7 +58,7 @@ class SimpleMAStrategy(BaseStrategy):
         
         return df_copy
     
-    def _check_stock(self, ts_code: str, df: pd.DataFrame) -> bool:
+    def _check_stock(self, ts_code: str, df: pd.DataFrame, target_date: str = None) -> bool:
         """
         判断是否符合买入条件
         
