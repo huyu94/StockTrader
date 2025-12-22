@@ -492,4 +492,9 @@ class Manager:
         logger.info("Date mode update completed.")
     
     
-    
+    # ======================== load data =======================  
+    def load_kline_data_from_sql(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        从 SQLite 数据库加载日线行情数据
+        """
+        return self.daily_storage.load(ts_code, start_date, end_date)

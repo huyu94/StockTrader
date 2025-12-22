@@ -49,15 +49,38 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
             conn.commit()
             logger.debug(f"Database initialized: {self.db_path}")
     
-    def load(self, ts_code: str) -> Optional[pd.DataFrame]:
-        """读取单只股票的日线数据"""
+    def load(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """读取单只股票的日线数据
+        
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期，支持 YYYYMMDD 或 YYYY-MM-DD 格式
+            end_date: 结束日期，支持 YYYYMMDD 或 YYYY-MM-DD 格式
+            
+        Returns:
+            包含日线数据的 DataFrame，如果无数据或出错则返回空 DataFrame
+        """
         try:
+            # 参数验证
+            if not ts_code:
+                logger.warning("ts_code is empty")
+                return pd.DataFrame()
+            
+            # 统一日期格式为 YYYYMMDD（与数据库存储格式一致）
+            from src.utils.date_helper import DateHelper
+            try:
+                start_date_normalized = DateHelper.normalize(start_date)
+                end_date_normalized = DateHelper.normalize(end_date)
+            except Exception as e:
+                logger.error(f"Invalid date format for {ts_code}: start={start_date}, end={end_date}, error={e}")
+                return pd.DataFrame()
+            
             with self._get_connection() as conn:
-                query = "SELECT * FROM daily_kline WHERE ts_code = ? ORDER BY trade_date"
-                df = pd.read_sql_query(query, conn, params=(ts_code,))
+                query = "SELECT * FROM daily_kline WHERE ts_code = ? AND trade_date >= ? AND trade_date <= ? ORDER BY trade_date"
+                df = pd.read_sql_query(query, conn, params=(ts_code, start_date_normalized, end_date_normalized))
                 
                 if df.empty:
-                    return None
+                    return pd.DataFrame()
                 
                 # 转换trade_date为datetime（支持 YYYY-MM-DD 和 YYYYMMDD 格式）
                 if "trade_date" in df.columns:
@@ -66,7 +89,7 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
                 return df
         except Exception as e:
             logger.error(f"Failed to load daily kline for {ts_code}: {e}")
-            return None
+            return pd.DataFrame()
     
     def write(self, df: pd.DataFrame) -> bool:
         """
