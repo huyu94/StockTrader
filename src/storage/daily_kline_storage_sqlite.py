@@ -70,35 +70,70 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
     
     def write(self, df: pd.DataFrame) -> bool:
         """
-        写入股票数据（统一接口）
+        写入股票数据（统一接口，带重试机制）
         
         注意：
         - 假设传入的 DataFrame 已经是正确格式，不做额外验证
         - 数据验证应该在外层使用 Pydantic 模型完成
         - DataFrame 必须包含 ts_code 列
         - 支持单只股票或多只股票的数据写入
+        - 遇到 database locked 错误会自动重试
         
         :param df: 股票数据 DataFrame，必须包含 ts_code 和 trade_date 列
-        :return: 成功写入的行数
+        :return: True 表示成功，False 表示失败
         """
-        try:
-            if df.empty:
-                return True
-            
-            with self._get_connection() as conn:
-                # 使用 INSERT OR REPLACE 实现覆盖写入（自动去重）
-                df.to_sql(
-                    "daily_kline",
-                    conn,
-                    if_exists="append",
-                    index=False,
-                    method=SQLiteBaseStorage._upsert_method
-                )
+        import time
+        
+        if df.empty:
             return True
-            
-        except Exception as e:
-            logger.error(f"Failed to write data: {e}")
-            return False
+        
+        # 重试配置
+        max_retries = 5
+        retry_delay = 2  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                with self._get_connection() as conn:
+                    # 使用 INSERT OR REPLACE 实现覆盖写入（自动去重）
+                    df.to_sql(
+                        "daily_kline",
+                        conn,
+                        if_exists="append",
+                        index=False,
+                        method=SQLiteBaseStorage._upsert_method
+                    )
+                
+                # 写入成功
+                if attempt > 0:
+                    logger.info(f"✓ Write succeeded after {attempt + 1} attempts ({len(df)} rows)")
+                return True
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                # 判断是否是数据库锁错误
+                if "locked" in error_msg or "database is locked" in error_msg:
+                    if attempt < max_retries - 1:
+                        # 还有重试机会，等待后重试
+                        logger.warning(
+                            f"Database locked (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {retry_delay}s... [{len(df)} rows pending]"
+                        )
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        # 已经重试了最大次数，放弃
+                        logger.error(
+                            f"❌ Failed to write after {max_retries} attempts due to database lock. "
+                            f"Lost {len(df)} rows of data."
+                        )
+                        return False
+                else:
+                    # 其他类型的错误，不重试
+                    logger.error(f"❌ Failed to write data (non-lock error): {e}")
+                    return False
+        
+        return False
     
 
     def load_multiple(self, ts_codes: List[str]) -> pd.DataFrame:

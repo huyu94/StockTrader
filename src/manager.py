@@ -384,14 +384,24 @@ class Manager:
         if pending_futures:
             logger.info("Waiting for all fetch and write tasks to complete...")
             success_count = 0
+            failed_count = 0
             for future in tqdm(pending_futures, desc="Writing"):
                 try:
-                    if future.result():
+                    result = future.result()
+                    if result:
                         success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
-                    logger.error(f"Task failed: {e}")
+                    logger.error(f"Task failed with exception: {e}")
+                    failed_count += 1
             
-            logger.info(f"Successfully updated {success_count}/{len(ts_codes)} stocks.")
+            # 显示统计信息
+            total = len(ts_codes)
+            logger.info(f"Code mode completed: {success_count} succeeded, {failed_count} failed out of {total} stocks.")
+            if failed_count > 0:
+                logger.warning(f"⚠️  {failed_count} stocks failed to write. Data may be incomplete.")
+                logger.warning(f"💡 Tip: Reduce io_executor max_workers to 1-2 to avoid database locks.")
         
         logger.info("Code mode update completed.")
     
@@ -461,15 +471,25 @@ class Manager:
         if pending_futures:
             logger.info("Waiting for all fetch and write tasks to complete...")
             success_count = 0
+            failed_count = 0
             for future in tqdm(pending_futures, desc="Writing"):
                 try:
-                    if future.result():
+                    result = future.result()
+                    if result:
                         success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
-                    logger.error(f"Task failed: {e}")
+                    logger.error(f"Task failed with exception: {e}")
+                    failed_count += 1
             
-            logger.info(f"Successfully updated {success_count}/{len(trade_dates)} dates.")
+            # 显示统计信息
+            total = len(trade_dates)
+            logger.info(f"Date mode completed: {success_count} succeeded, {failed_count} failed out of {total} dates.")
+            if failed_count > 0:
+                logger.warning(f"⚠️  {failed_count} dates failed to write. Data may be incomplete.")
+                logger.warning(f"💡 Tip: Reduce io_executor max_workers to 1-2 to avoid database locks.")
         logger.info("Date mode update completed.")
     
     
-    # 
+    
