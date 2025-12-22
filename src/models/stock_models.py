@@ -4,11 +4,12 @@
 定义所有股票相关数据的结构和验证规则
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import pandas as pd
+from src.utils.date_helper import DateHelper
 
 
 class DailyKlineData(BaseModel):
@@ -95,6 +96,106 @@ class DailyKlineData(BaseModel):
         data = self.model_dump()
         data['trade_date'] = self.trade_date.strftime('%Y%m%d')
         return data
+    
+    @staticmethod
+    def validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        批量验证 DataFrame 是否符合数据库格式
+        
+        此方法是数据验证的核心入口，用于确保 Fetcher 获取的数据符合数据库要求。
+        
+        验证策略：
+        - 检查必需字段（ts_code, trade_date）是否存在
+        - 验证数据类型和取值范围
+        - 清洗无效数据（删除验证失败的行）
+        - 返回验证通过的 DataFrame
+        
+        性能优化：
+        - 使用批量操作而非逐行验证
+        - 只在必要时进行类型转换
+        
+        :param df: 原始 DataFrame
+        :return: 验证通过的 DataFrame（如果全部失败则返回空 DataFrame）
+        """
+        from loguru import logger
+        
+        if df is None or df.empty:
+            logger.debug("Empty DataFrame passed to validate_dataframe")
+            return pd.DataFrame()
+        
+        # 1. 检查必需字段
+        required_fields = {'ts_code', 'trade_date'}
+        missing_fields = required_fields - set(df.columns)
+        if missing_fields:
+            logger.error(f"Missing required fields: {missing_fields}")
+            return pd.DataFrame()
+        
+        # 2. 复制 DataFrame 避免修改原数据
+        df_clean = df.copy()
+        initial_count = len(df_clean)
+        
+        # 3. 清理 ts_code（移除空值和格式错误）
+        df_clean = df_clean[df_clean['ts_code'].notna()]
+        df_clean = df_clean[df_clean['ts_code'].astype(str).str.contains('.', regex=False)]
+        df_clean['ts_code'] = df_clean['ts_code'].str.upper()
+        
+        # 4. 统一日期格式为 YYYYMMDD（数据库存储格式）
+        try:
+            if 'trade_date' in df_clean.columns:
+                # 如果是 datetime 类型，转换为 YYYYMMDD
+                if pd.api.types.is_datetime64_any_dtype(df_clean['trade_date']):
+                    df_clean['trade_date'] = df_clean['trade_date'].dt.strftime('%Y%m%d')
+                else:
+                    # 如果是字符串，使用 DateHelper 统一转换
+                    df_clean['trade_date'] = df_clean['trade_date'].astype(str)
+                    def format_date(d):
+                        try:
+                            return DateHelper.normalize(d)
+                        except:
+                            return None
+                    df_clean['trade_date'] = df_clean['trade_date'].apply(format_date)
+                    df_clean = df_clean[df_clean['trade_date'].notna()]
+        except Exception as e:
+            logger.error(f"Failed to format trade_date: {e}")
+            return pd.DataFrame()
+        
+        # 5. 验证和清理数值字段
+        numeric_fields = {
+            'open': {'min': 0, 'required': False},
+            'high': {'min': 0, 'required': False},
+            'low': {'min': 0, 'required': False},
+            'close': {'min': 0, 'required': False},
+            'pre_close': {'min': 0, 'required': False},
+            'vol': {'min': 0, 'required': False},
+            'amount': {'min': 0, 'required': False},
+            'adj_factor': {'min': 0, 'required': False},
+        }
+        
+        for field, rules in numeric_fields.items():
+            if field in df_clean.columns:
+                # 转换为数值类型
+                df_clean[field] = pd.to_numeric(df_clean[field], errors='coerce')
+                # 应用最小值约束
+                if 'min' in rules:
+                    df_clean.loc[df_clean[field] < rules['min'], field] = None
+        
+        # 6. 移除完全无效的行（ts_code 或 trade_date 为空）
+        df_clean = df_clean[df_clean['ts_code'].notna() & df_clean['trade_date'].notna()]
+        
+        # 7. 记录验证结果
+        final_count = len(df_clean)
+        removed_count = initial_count - final_count
+        
+        if removed_count > 0:
+            logger.warning(f"Data validation: {removed_count}/{initial_count} rows removed (invalid data)")
+        else:
+            logger.debug(f"Data validation: {final_count}/{initial_count} rows passed")
+        
+        if df_clean.empty:
+            logger.warning("All rows failed validation")
+            return pd.DataFrame()
+        
+        return df_clean
 
 
 class BasicInfoData(BaseModel):
@@ -206,7 +307,6 @@ class TradeCalendarData(BaseModel):
 
 
 # 辅助函数
-
 def validate_daily_kline_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[dict]]:
     """
     验证日线数据 DataFrame

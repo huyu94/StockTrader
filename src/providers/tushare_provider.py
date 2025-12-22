@@ -46,20 +46,36 @@ class TushareProvider(BaseProvider):
 
     def query(self, api_name: str, fields: Optional[str] = None, **kwargs: Any) -> pd.DataFrame:
         """
-        Execute a query against Tushare API.
+        Execute a query against Tushare API with retry mechanism.
         使用锁确保API调用完全串行，避免IP超限问题
+        
+        重试策略：
+        - 最多重试 3 次
+        - 每次重试间隔 2 秒
+        - 记录每次尝试的日志
         """
+        max_retries = 3
+        retry_delay = 2  # 秒
+        
         with self._api_lock:
-            start_time = time.time()
-            try:
-                df = self.pro.query(api_name, fields=fields, **kwargs)
-                elapsed = time.time() - start_time
-                logger.debug(f"Tushare API {api_name} success. Time: {elapsed:.3f}s, Rows: {len(df) if df is not None else 0}")
-                return df
-            except Exception as e:
-                elapsed = time.time() - start_time
-                logger.error(f"Tushare query failed. Time: {elapsed:.3f}s. Error: {e}")
-                raise
+            for attempt in range(max_retries):
+                start_time = time.time()
+                try:
+                    df = self.pro.query(api_name, fields=fields, **kwargs)
+                    elapsed = time.time() - start_time
+                    logger.debug(f"Tushare API {api_name} success. Time: {elapsed:.3f}s, Rows: {len(df) if df is not None else 0}")
+                    return df
+                except Exception as e:
+                    elapsed = time.time() - start_time
+                    
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Tushare API {api_name} failed (attempt {attempt + 1}/{max_retries}). "
+                                     f"Time: {elapsed:.3f}s. Error: {e}. Retrying in {retry_delay}s...")
+                        time.sleep(retry_delay)
+                    else:
+                        logger.error(f"Tushare API {api_name} failed after {max_retries} attempts. "
+                                   f"Time: {elapsed:.3f}s. Error: {e}")
+                        raise
 
     def daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """

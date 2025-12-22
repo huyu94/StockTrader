@@ -6,17 +6,20 @@
 2. 类型检查
 3. 数据序列化/反序列化
 4. 文档生成
+5. 日期格式标准化
 """
 
 from .stock_models import (
     DailyKlineData,
     BasicInfoData,
     TradeCalendarData,
+    DateHelper,
 )
 
 __all__ = [
     "DailyKlineData",
     "BasicInfoData",
     "TradeCalendarData",
+    "DateHelper",
 ]
 

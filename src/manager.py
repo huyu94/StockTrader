@@ -36,13 +36,16 @@ from src.storage.calendar_storage_sqlite import CalendarStorageSQLite
 from src.fetchers.daily_kline_fetcher import DailyKlineFetcher
 from src.fetchers.basic_info_fetcher import BasicInfoFetcher
 from src.fetchers.calendar_fetcher import CalendarFetcher
+# utils
+from src.utils.date_helper import DateHelper
 
 # Model
 from src.models.stock_models import (
     DailyKlineData,
     BasicInfoData,
     TradeCalendarData,
-    validate_daily_kline_dataframe
+    validate_daily_kline_dataframe,
+    validate_basic_info_dataframe
 )
 
 
@@ -199,27 +202,13 @@ class Manager:
             logger.error(f"Invalid mode: {mode}. Must be 'code' or 'date'")
             return
         
-        # 计算日期范围
+        # 使用 DateHelper 统一处理日期格式（Manager 内部全部使用 YYYYMMDD）
+        # 日期应该已经在 scripts 层被标准化，这里做最后的兜底处理
         if end_date is None:
-            end_date = datetime.now().strftime("%Y%m%d")
-        else:
-            # 处理 end_date 格式（可能是 YYYYMMDD 或 YYYY-MM-DD）
-            if len(end_date) == 10 and end_date.count("-") == 2:
-                try:
-                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-                    end_date = end_dt.strftime("%Y%m%d")
-                except ValueError:
-                    pass
+            end_date = DateHelper.today()
+        
         if start_date is None:
-            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
-        else:
-            # 处理 start_date 格式（可能是 YYYYMMDD 或 YYYY-MM-DD）
-            if len(start_date) == 10 and start_date.count("-") == 2:
-                try:
-                    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                    start_date = start_dt.strftime("%Y%m%d")
-                except ValueError:
-                    pass
+            start_date = DateHelper.days_ago(365)
         
         logger.info(f"Updating Daily Kline Data in {mode} mode from {start_date} to {end_date}")
         
@@ -227,7 +216,6 @@ class Manager:
             self._update_by_code_mode(start_date, end_date)
         else:  # mode == "date"
             self._update_by_date_mode(start_date, end_date)
-
 
     def update_basic_info(self):
         """
@@ -243,8 +231,13 @@ class Manager:
         if self.basic_storage.check_update_needed():
             logger.info("Updating basic info...")
             df = self.basic_fetcher.fetch()
-            if df is not None and not df.empty:
-                self.basic_storage.write(df)
+            validated_df, failed_records = validate_basic_info_dataframe(df)
+            if validated_df is not None and not validated_df.empty:
+                self.basic_storage.write(validated_df)
+            if failed_records:
+                logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
+                for failed_record in failed_records:
+                    logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
         else:
             logger.debug("Basic info is up to date.")
 
@@ -293,8 +286,6 @@ class Manager:
         result = self.basic_storage.load()
         return result if result is not None else pd.DataFrame()
 
-
-
     def get_calendar(self, exchange: str = "SSE") -> pd.DataFrame:
         """
         获取交易日历（按需加载）
@@ -312,23 +303,18 @@ class Manager:
         return self.calendar_storage.load(exchange)
 
     # ==================== Internal Generic Methods ====================
-
-
-
     def _fetch_kline_data_by_code(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取单只股票的日线行情数据
         
         流程：
-        1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票过去一年的数据
-        2. 返回 DataFrame
+        1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票的数据
+        2. 使用 DailyKlineData.validate_dataframe() 验证数据格式
+        3. 返回验证后的 DataFrame
         """
         df = self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
-        validated_df, failed_records = validate_daily_kline_dataframe(df)
-        if failed_records:
-            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
-            for failed_record in failed_records:
-                logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
+        validated_df = DailyKlineData.validate_dataframe(df)
+        logger.debug(f"Validated {len(validated_df)} rows of kline data for stock {ts_code}")
         return validated_df
 
     def _fetch_kline_data_by_date(self, trade_date: str) -> pd.DataFrame:
@@ -337,14 +323,12 @@ class Manager:
         
         流程：
         1. 调用 fetcher.fetch_daily_by_date() 使用 pro.daily 获取该交易日的所有股票数据
-        2. 返回 DataFrame
+        2. 使用 DailyKlineData.validate_dataframe() 验证数据格式
+        3. 返回验证后的 DataFrame
         """
         df = self.daily_fetcher.fetch_daily_by_date(trade_date=trade_date)
-        validated_df, failed_records = validate_daily_kline_dataframe(df)
-        if failed_records:
-            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
-            for failed_record in failed_records:
-                logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
+        validated_df = DailyKlineData.validate_dataframe(df)
+        logger.debug(f"Validated {len(validated_df)} rows of kline data for trade date {trade_date}")    
         return validated_df
 
     def _save_kline_data_to_sql(self, df: pd.DataFrame) -> bool:
@@ -355,9 +339,8 @@ class Manager:
         1. 调用 storage.write_batch() 批量写入
         2. 返回 True 表示成功，False 表示失败
         """
+        logger.debug(f"Saving {len(df)} rows of kline data to SQLite...")
         return self.daily_storage.write(df)
-
-
 
     def _update_by_code_mode(self, start_date: str, end_date: str):
         """
@@ -438,15 +421,19 @@ class Manager:
             logger.error("Failed to get trade calendar. Please update calendar first.")
             return
         
-        # 筛选指定日期范围内的交易日
-        # 处理日期格式：calendar 中的日期可能是 YYYY-MM-DD 格式
+        # 筛选指定日期范围内的交易日（使用 DateHelper 统一处理为 YYYYMMDD）
         calendar_df_copy = calendar_df.copy()
         if "cal_date" in calendar_df_copy.columns:
-            # 统一转换为字符串格式进行比较
+            # 统一转换为 YYYYMMDD 格式进行比较
             calendar_df_copy["cal_date"] = calendar_df_copy["cal_date"].astype(str)
-            calendar_df_copy["cal_date"] = calendar_df_copy["cal_date"].apply(
-                lambda x: x.replace("-", "") if "-" in x else x
-            )
+            def normalize_date(d):
+                try:
+                    return DateHelper.normalize(d)
+                except:
+                    return None
+            calendar_df_copy["cal_date"] = calendar_df_copy["cal_date"].apply(normalize_date)
+            # 移除无效日期
+            calendar_df_copy = calendar_df_copy[calendar_df_copy["cal_date"].notna()]
         
         trade_dates = calendar_df_copy[
             (calendar_df_copy['cal_date'] >= start_date) & 
@@ -484,4 +471,5 @@ class Manager:
             logger.info(f"Successfully updated {success_count}/{len(trade_dates)} dates.")
         logger.info("Date mode update completed.")
     
-
+    
+    # 
