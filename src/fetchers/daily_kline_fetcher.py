@@ -28,16 +28,14 @@ class DailyKlineFetcher:
             end_date=end_date, 
             adj="qfq", 
             freq="D",
-            factors="tor"  # 获取前复权因子
+            factors=["tor", "vr"],  # 获取前复权因子
+            adjfactor=True
         )
         
         if df is None or df.empty:
             logger.warning(f"No daily data found for {ts_code} in {start_date}-{end_date}")
             return pd.DataFrame()
         
-        # 统一列名：如果返回的是 factor 字段，重命名为 adj_factor
-        if "factor" in df.columns and "adj_factor" not in df.columns:
-            df = df.rename(columns={"factor": "adj_factor"})
             
         df = df.sort_values("trade_date").reset_index(drop=True)
         return df

@@ -106,7 +106,7 @@ class Manager:
 
     # ==================== Public Update Methods ====================
 
-    def update_all(self, mode: str = "code", start_date: str = None):
+    def update_all(self, mode: str = "code", start_date: str = None, end_date: str = None):
         """
         一键更新所有数据
         
@@ -157,13 +157,13 @@ class Manager:
         
         # 2. 核心数据 (Daily Kline) - 根据模式选择不同的更新策略
         logger.info("Step 2/2: Updating Daily Kline Data...")
-        self.update_daily_kline(mode=mode, start_date=start_date)
+        self.update_daily_kline(mode=mode, start_date=start_date, end_date=end_date)
         
         logger.info("=" * 60)
         logger.success("🎉 Full data update completed successfully!")
         logger.info("=" * 60)
 
-    def update_daily_kline(self, mode: str = "code", start_date: str = None):
+    def update_daily_kline(self, mode: str = "code", start_date: str = None, end_date: str = None):
         """
         更新日线行情数据的主函数
         
@@ -194,7 +194,16 @@ class Manager:
             return
         
         # 计算日期范围
-        end_date = datetime.now().strftime("%Y%m%d")
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y%m%d")
+        else:
+            # 处理 end_date 格式（可能是 YYYYMMDD 或 YYYY-MM-DD）
+            if len(end_date) == 10 and end_date.count("-") == 2:
+                try:
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                    end_date = end_dt.strftime("%Y%m%d")
+                except ValueError:
+                    pass
         if start_date is None:
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
         else:

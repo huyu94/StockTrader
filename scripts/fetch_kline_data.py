@@ -40,7 +40,9 @@ def main():
     parser.add_argument('--mode', type=str, default='code', choices=['code', 'date'], 
                         help='爬取模式: code=按股票代码爬取(使用pro_bar,默认), date=按交易日爬取(使用pro.daily)')
     parser.add_argument('--start-date', type=str, default=None,
-                        help='开始日期，格式YYYYMMDD，默认近一年')
+                        help='开始日期,格式YYYYMMDD，默认近一年')
+    parser.add_argument('--end-date', type=str, default=None,
+                        help='结束日期,格式YYYYMMDD，默认运行当天日期')
     args = parser.parse_args()
     
     try:
@@ -48,7 +50,7 @@ def main():
         data_manager = Manager()
         
         # 一键更新所有数据
-        data_manager.update_all(mode=args.mode, start_date=args.start_date)
+        data_manager.update_all(mode=args.mode, start_date=args.start_date, end_date=args.end_date)
         
     except KeyboardInterrupt:
         logger.warning("⚠️ Job interrupted by user.")

@@ -84,6 +84,9 @@ class KDJStrategy(BaseStrategy):
         df_copy['kdj_oversold'] = df_copy['kdj_j'] <= self.j_threshold
         
         return df_copy
+
+
+
     
     def _check_stock(self, ts_code: str, df: pd.DataFrame) -> bool:
         """
@@ -130,11 +133,22 @@ class KDJStrategy(BaseStrategy):
         # 两个条件都必须满足
         result = condition1 and condition2
         
+        # 添加详细的调试信息
         if result:
-            logger.debug(
-                f"{ts_code}: 符合少妇战法条件 - "
+            logger.info(
+                f"{ts_code}: ✓ 符合少妇战法条件 - "
                 f"J值={j_value:.2f} <= {self.j_threshold}, "
                 f"成交量比例={vol_ratio:.2%} < 50%"
+            )
+        else:
+            # 输出不满足条件的原因
+            reasons = []
+            if not condition1:
+                reasons.append(f"J值={j_value:.2f} > {self.j_threshold}")
+            if not condition2:
+                reasons.append(f"成交量比例={vol_ratio:.2%} >= 50%")
+            logger.debug(
+                f"{ts_code}: ✗ 不符合条件 - " + ", ".join(reasons)
             )
         
         return result
