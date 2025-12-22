@@ -309,6 +309,28 @@ class Manager:
 
 
 
+    def _fetch_kline_data_by_code(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        获取单只股票的日线行情数据
+        
+        流程：
+        1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票过去一年的数据
+        2. 返回 DataFrame
+        """
+        return self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
+
+    def _save_kline_data_to_sql(self, df: pd.DataFrame) -> bool:
+        """
+        将日线行情数据保存到 SQLite 数据库
+        
+        流程：
+        1. 调用 storage.write_batch() 批量写入
+        2. 返回 True 表示成功，False 表示失败
+        """
+        return self.daily_storage.write(df)
+
+
+
     def _update_by_code_mode(self, start_date: str, end_date: str):
         """
         Code模式：使用 pro_bar API 按股票代码获取数据
@@ -340,14 +362,11 @@ class Manager:
         # 2. 遍历股票代码，批量更新
         pending_futures = []
         for ts_code in tqdm(ts_codes, desc="Fetching by code"):
-            # 提交到 task_executor，异步获取和写入
-            # task_executor 只有1个线程，确保任务串行执行（避免API并发超限）
-            future = self.task_executor.submit(
-                self._fetch_and_write_by_code,
-                ts_code,
-                start_date,
-                end_date
-            )
+            df = self._fetch_kline_data_by_code(ts_code, start_date, end_date)
+            future = self.io_executor.submit(
+                self._save_kline_data_to_sql,
+                df
+            )   
             pending_futures.append(future)
         
         # 3. 等待所有任务完成
@@ -415,168 +434,15 @@ class Manager:
         
         # 2. 遍历每个交易日，批量更新
         pending_futures = []
-        success_count = 0
-        
         for trade_date in tqdm(trade_dates, desc="Fetching by date"):
-            try:
-                # 提交到 task_executor，异步获取和写入
-                # task_executor 只有1个线程，确保任务串行执行（避免API并发超限）
-                future = self.task_executor.submit(
-                    self._fetch_and_write_by_date,
-                    trade_date
-                )
-                pending_futures.append((trade_date, future))
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Failed to submit task for date {trade_date}: {e}")
-        
-        # 3. 等待所有写入任务完成
-        if pending_futures:
-            logger.info("Waiting for all write tasks to complete...")
-            write_success = 0
-            for trade_date, future in tqdm(pending_futures, desc="Writing"):
-                try:
-                    if future.result():
-                        write_success += 1
-                    else:
-                        logger.error(f"Write failed for date {trade_date}")
-                except Exception as e:
-                    logger.error(f"Write task failed for date {trade_date}: {e}")
-            
-            logger.info(f"Successfully fetched {success_count}/{len(trade_dates)} dates, wrote {write_success}/{len(pending_futures)} dates.")
-        
-        logger.info("Date mode update completed.")
-    
-    def _fetch_and_write_by_code(self, ts_code: str, start_date: str, end_date: str) -> bool:
-        """
-        获取单只股票数据并写入（Code模式）
-        
-        流程：
-        1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票过去一年的数据
-           - 使用 pro_bar API，一次获取全部历史数据（更快）
-           - 同时获取复权因子（factors="tor"）
-        2. 提交到 io_executor，异步执行 storage.write_batch() 批量写入
-        3. 等待写入完成并返回结果
-        
-        注意：
-        - 此方法在 task_executor 中执行，已经是串行的，不需要额外延迟
-        - 使用 io_executor 并发写入，提升性能
-        
-        :param ts_code: 股票代码
-        :param start_date: 开始日期，格式YYYYMMDD
-        :param end_date: 结束日期，格式YYYYMMDD
-        :return: True表示成功，False表示失败
-        """
-        try:
-            # Fetch 单只股票的数据（使用 pro_bar）
-            df = self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
-            
-            if df is None or df.empty:
-                logger.debug(f"No data fetched for {ts_code}")
-                return False
-            
-            # 提交到 io_executor，异步执行批量写入
-            future = self.io_executor.submit(self.daily_storage.write_batch, df)
-            return future.result() > 0
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch and write {ts_code}: {e}")
-            return False
-    
-    def _fetch_and_write_by_date(self, trade_date: str) -> bool:
-        """
-        获取单个交易日数据并写入（Date模式）
-        
-        流程：
-        1. 调用 fetcher.fetch_daily_by_date() 使用 pro.daily 获取该交易日的所有股票数据
-        2. 提交到 io_executor，异步执行 storage.write_batch() 批量写入
-        3. 等待写入完成并返回结果
-        
-        注意：
-        - 此方法在 task_executor 中执行，已经是串行的，不需要额外延迟
-        - 使用 io_executor 并发写入，提升性能
-        
-        :param trade_date: 交易日，格式YYYYMMDD
-        :return: True表示成功，False表示失败
-        """
-        try:
-            # Fetch 单个交易日的所有股票数据（使用 pro.daily）
-            df = self.daily_fetcher.fetch_daily_by_date(trade_date)
-            
-            if df is None or df.empty:
-                logger.debug(f"No data fetched for date {trade_date}")
-                return False
-            
-            # 提交到 io_executor，异步执行批量写入
-            future = self.io_executor.submit(self.daily_storage.write_batch, df)
-            return future.result() > 0
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch and write for date {trade_date}: {e}")
-            return False
-
-    def _update_all_stocks_full(self, fetcher, storage, data_name: str, start_date: str):
-        """
-        首次全量更新策略：按股票代码批量获取最近一年数据
-        
-        流程：
-        1. 获取所有股票代码列表（从 basic_info）
-        2. 计算日期范围（start_date 到 今天）
-        3. 遍历每只股票（使用 tqdm 显示进度）
-           3.1. 提交到 task_executor，异步执行 _fetch_and_write_stock_full()
-           3.2. _fetch_and_write_stock_full() 会：
-                - 调用 fetcher.fetch_one() 获取数据
-                - 调用 storage.write_one() 写入数据（通过 io_executor）
-        4. 等待所有任务完成
-        5. 批量刷新缓存（如果有）
-        
-        性能特点：
-        - 使用 task_executor 串行调度任务（避免API并发超限）
-        - 使用 io_executor 并发写入（提升写入性能）
-        - 适合首次爬取，数据完整
-        
-        :param fetcher: Fetcher实例
-        :param storage: Storage实例
-        :param data_name: 数据名称（用于日志）
-        :param start_date: 开始日期，格式YYYYMMDD
-        """
-        # 1. 获取所有股票代码
-        basic_info = self.all_basic_info
-        if basic_info is None or basic_info.empty:
-            logger.error(f"Failed to get stock codes. Please update basic info first.")
-            return
-        
-        ts_codes = basic_info["ts_code"].tolist()
-        logger.info(f"Full update: Updating {data_name} for {len(ts_codes)} stocks...")
-        
-        # 2. 计算日期范围（最近一年）
-        end_date = datetime.now().strftime("%Y%m%d")
-        # 处理 start_date 格式（可能是 YYYYMMDD 或 YYYY-MM-DD）
-        if len(start_date) == 8 and start_date.isdigit():
-            start_date_str = start_date
-        else:
-            try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                start_date_str = start_dt.strftime("%Y%m%d")
-            except ValueError:
-                start_date_str = start_date  # 如果解析失败，直接使用原值
-        
-        # 3. 遍历股票代码，批量更新
-        pending_futures = []
-        for ts_code in tqdm(ts_codes, desc=f"Full update {data_name}"):
-            # 提交到 task_executor，异步获取和写入
-            # task_executor 只有1个线程，确保任务串行执行（避免API并发超限）
-            future = self.task_executor.submit(
-                self._fetch_and_write_stock_full,
-                fetcher,
-                storage,
-                ts_code,
-                start_date_str,
-                end_date
-            )
+            df = self._fetch_kline_data_by_date(trade_date)
+            future = self.io_executor.submit(
+                self._save_kline_data_to_sql,
+                df
+            )   
             pending_futures.append(future)
         
-        # 4. 等待所有任务完成
+        # 3. 等待所有任务完成
         if pending_futures:
             logger.info("Waiting for all fetch and write tasks to complete...")
             success_count = 0
@@ -587,130 +453,7 @@ class Manager:
                 except Exception as e:
                     logger.error(f"Task failed: {e}")
             
-            logger.info(f"Successfully updated {success_count}/{len(ts_codes)} stocks.")
-        
-        # 5. 批量刷新缓存（对于 adj_factor_storage）
-        if hasattr(storage, 'flush_cache'):
-            storage.flush_cache()
-            
-        logger.info(f"{data_name} full update completed.")
-
-
-
-    def _fetch_and_write_stock_full(self, fetcher, storage, ts_code: str, start_date: str, end_date: str) -> bool:
-        """
-        获取单只股票全量数据并写入（用于首次全量更新）
-        
-        流程：
-        1. 调用 fetcher.fetch_one() 获取最近一年数据
-           - 使用 pro_bar API，一次获取全部历史数据（更快）
-           - 同时获取复权因子（factors="tor"）
-        2. 提交到 io_executor，异步执行 storage.write_one()
-        3. 等待写入完成并返回结果
-        
-        注意：
-        - 此方法在 task_executor 中执行，已经是串行的，不需要额外延迟
-        - 使用 io_executor 并发写入，提升性能
-        
-        :param fetcher: Fetcher实例
-        :param storage: Storage实例
-        :param ts_code: 股票代码
-        :param start_date: 开始日期，格式YYYYMMDD
-        :param end_date: 结束日期，格式YYYYMMDD
-        :return: True表示成功，False表示失败
-        """
-        try:
-            # Fetch 单只股票的数据（最近一年）
-            df = fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
-            
-            if df is None or df.empty:
-                logger.debug(f"No data fetched for {ts_code}")
-                return False
-            
-            # 直接覆盖写入（使用 io_executor）
-            future = self.io_executor.submit(storage.write_one, ts_code, df)
-            return future.result()
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch and write {ts_code}: {e}")
-            return False
+            logger.info(f"Successfully updated {success_count}/{len(trade_dates)} dates.")
+        logger.info("Date mode update completed.")
     
-    def _update_all_stocks_by_date(self, fetcher, storage, data_name: str, start_date: str, end_date: str):
-        """
-        按交易日全量更新策略：按交易日批量获取所有股票数据
-        
-        流程：
-        1. 获取指定日期范围内的所有交易日
-        2. 遍历每个交易日（使用 tqdm 显示进度）
-           2.1. 调用 fetcher.fetch_daily_by_date() 获取该交易日的所有股票数据
-           2.2. 提交到 io_executor，异步执行 storage.write_daily_by_date()
-        3. 等待所有任务完成
-        4. 批量刷新缓存（如果有）
-        
-        性能特点：
-        - 按交易日批量获取，适合增量更新
-        - 使用 task_executor 串行调度任务（避免API并发超限）
-        - 使用 io_executor 并发写入（提升写入性能）
-        - 适合补充特定日期的缺失数据
-        
-        :param fetcher: Fetcher实例
-        :param storage: Storage实例
-        :param data_name: 数据名称（用于日志）
-        :param start_date: 开始日期，格式YYYYMMDD
-        :param end_date: 结束日期，格式YYYYMMDD
-        """
-        # 1. 获取所有交易日
-        calendar_df = self.get_calendar()
-        if calendar_df is None or calendar_df.empty:
-            logger.error(f"Failed to get trade calendar. Please update calendar first.")
-            return
-        
-        # 筛选指定日期范围内的交易日
-        trade_dates = calendar_df[(calendar_df['cal_date'] >= start_date) & (calendar_df['cal_date'] <= end_date)]['cal_date'].tolist()
-        if not trade_dates:
-            logger.error(f"No trade dates found in range {start_date}-{end_date}")
-            return
-        
-        trade_dates = sorted(trade_dates)
-        logger.info(f"Date-based update: Updating {data_name} for {len(trade_dates)} trade dates...")
-        
-        # 2. 遍历每个交易日，批量更新
-        pending_futures = []
-        success_count = 0
-        
-        for trade_date in tqdm(trade_dates, desc=f"Updating {data_name} by date"):
-            try:
-                # 获取该交易日的所有股票数据
-                df = fetcher.fetch_daily_by_date(trade_date)
-                
-                if df is None or df.empty:
-                    logger.debug(f"No data fetched for date {trade_date}")
-                    continue
-                
-                # 提交到 io_executor，异步执行批量写入
-                future = self.io_executor.submit(storage.write_daily_by_date, df)
-                pending_futures.append((trade_date, future))
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Failed to fetch data for date {trade_date}: {e}")
-        
-        # 3. 等待所有写入任务完成
-        if pending_futures:
-            logger.info(f"Waiting for all write tasks to complete...")
-            write_success = 0
-            for trade_date, future in tqdm(pending_futures, desc="Writing"):
-                try:
-                    if future.result():
-                        write_success += 1
-                    else:
-                        logger.error(f"Write failed for date {trade_date}")
-                except Exception as e:
-                    logger.error(f"Write task failed for date {trade_date}: {e}")
-            
-            logger.info(f"Successfully fetched {success_count}/{len(trade_dates)} dates, wrote {write_success}/{len(pending_futures)} dates.")
-        
-        # 4. 批量刷新缓存（如果有）
-        if hasattr(storage, 'flush_cache'):
-            storage.flush_cache()
-            
-        logger.info(f"{data_name} date-based update completed.")
+

@@ -1,8 +1,10 @@
+from numpy import True_
 import pandas as pd
-from typing import Optional, List
+from typing import Optional, List, Union
 from loguru import logger
 from .sqlite_base import SQLiteBaseStorage
 from .sql_models import DAILY_KLINE_TABLE, DAILY_KLINE_INDEXES
+from src.models.stock_models import DailyKlineData
 import dotenv
 
 dotenv.load_dotenv()
@@ -66,111 +68,39 @@ class DailyKlineStorageSQLite(SQLiteBaseStorage):
             logger.error(f"Failed to load daily kline for {ts_code}: {e}")
             return None
     
-    def write_one(self, ts_code: str, df: pd.DataFrame) -> bool:
+    def write(self, df: pd.DataFrame) -> bool:
         """
-        写入单只股票的数据（覆盖模式）
-        使用 INSERT OR REPLACE 实现自动去重和覆盖
+        写入股票数据（统一接口）
+        
+        注意：
+        - 假设传入的 DataFrame 已经是正确格式，不做额外验证
+        - 数据验证应该在外层使用 Pydantic 模型完成
+        - DataFrame 必须包含 ts_code 列
+        - 支持单只股票或多只股票的数据写入
+        
+        :param df: 股票数据 DataFrame，必须包含 ts_code 和 trade_date 列
+        :return: 成功写入的行数
         """
         try:
             if df.empty:
                 return True
             
-            # 统一 trade_date 格式为 DATE 类型（YYYY-MM-DD）
-            df_copy = df.copy()
-            if pd.api.types.is_datetime64_any_dtype(df_copy["trade_date"]):
-                df_copy["trade_date"] = df_copy["trade_date"].dt.strftime("%Y-%m-%d")
-            else:
-                # 如果是 YYYYMMDD 格式，转换为 YYYY-MM-DD
-                df_copy["trade_date"] = df_copy["trade_date"].astype(str)
-                df_copy["trade_date"] = df_copy["trade_date"].apply(
-                    lambda x: f"{x[:4]}-{x[4:6]}-{x[6:8]}" if len(x) == 8 and x.isdigit() else x
-                )
-            
-            # 确保有ts_code列
-            if "ts_code" not in df_copy.columns:
-                df_copy["ts_code"] = ts_code
-            
-            # 去重（保留最后一条）
-            df_copy = df_copy.drop_duplicates(subset=["trade_date"], keep="last")
-            
-            # 选择需要的列（包括复权因子）
-            required_columns = [
-                "ts_code", "trade_date", "open", "high", "low", "close",
-                "pre_close", "change", "pct_chg", "vol", "amount", "adj_factor"
-            ]
-            available_columns = [col for col in required_columns if col in df_copy.columns]
-            df_to_write = df_copy[available_columns].copy()
-            
             with self._get_connection() as conn:
                 # 使用 INSERT OR REPLACE 实现覆盖写入（自动去重）
-                df_to_write.to_sql(
+                df.to_sql(
                     "daily_kline",
                     conn,
                     if_exists="append",
                     index=False,
                     method=SQLiteBaseStorage._upsert_method
                 )
-            
             return True
+            
         except Exception as e:
-            logger.error(f"Failed to write data for {ts_code}: {e}")
+            logger.error(f"Failed to write data: {e}")
             return False
     
-    def write_batch(self, df: pd.DataFrame) -> int:
-        """
-        批量写入多只股票的数据（高性能）
-        这是SQLite版本的核心优势：单次事务写入所有数据
-        
-        :param df: 包含多只股票数据的DataFrame，必须有ts_code和trade_date列
-        :return: 成功写入的行数
-        """
-        try:
-            if df.empty:
-                return 0
-            
-            # 统一 trade_date 格式为 DATE 类型（YYYY-MM-DD）
-            df_copy = df.copy()
-            if pd.api.types.is_datetime64_any_dtype(df_copy["trade_date"]):
-                df_copy["trade_date"] = df_copy["trade_date"].dt.strftime("%Y-%m-%d")
-            else:
-                # 如果是 YYYYMMDD 格式，转换为 YYYY-MM-DD
-                df_copy["trade_date"] = df_copy["trade_date"].astype(str)
-                df_copy["trade_date"] = df_copy["trade_date"].apply(
-                    lambda x: f"{x[:4]}-{x[4:6]}-{x[6:8]}" if len(x) == 8 and x.isdigit() else x
-                )
-            
-            # 确保有ts_code列
-            if "ts_code" not in df_copy.columns:
-                logger.error("DataFrame must have 'ts_code' column for batch write")
-                return 0
-            
-            # 去重（保留最后一条）
-            df_copy = df_copy.drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
-            
-            # 选择需要的列（包括复权因子）
-            required_columns = [
-                "ts_code", "trade_date", "open", "high", "low", "close",
-                "pre_close", "change", "pct_chg", "vol", "amount", "adj_factor"
-            ]
-            available_columns = [col for col in required_columns if col in df_copy.columns]
-            df_to_write = df_copy[available_columns].copy()
-            
-            with self._get_connection() as conn:
-                # 批量写入（单次事务）
-                df_to_write.to_sql(
-                    "daily_kline",
-                    conn,
-                    if_exists="append",
-                    index=False,
-                    method=SQLiteBaseStorage._upsert_method
-                )
-            
-            logger.debug(f"Batch wrote {len(df_to_write)} rows to database")
-            return len(df_to_write)
-        except Exception as e:
-            logger.error(f"Failed to batch write data: {e}")
-            return 0
-    
+
     def load_multiple(self, ts_codes: List[str]) -> pd.DataFrame:
         """批量读取多只股票的数据"""
         try:

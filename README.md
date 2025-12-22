@@ -99,11 +99,17 @@
 - **自动去重**：使用 `INSERT OR REPLACE` 自动处理重复数据
 - **索引优化**：为常用查询字段创建索引
 - **WAL模式**：启用Write-Ahead Logging，提升并发性能
+- **简化写入**：直接写入数据，不做额外验证，提升性能
 
 **SQLiteBaseStorage** - 存储基类
 - 提供统一的数据库连接管理
 - 实现 `_upsert_method`，支持批量UPSERT操作
 - 自动处理NaN值转换
+
+**数据字段管理**
+- 使用 Pydantic 模型（`DailyKlineData`）定义数据字段
+- Storage 层自动从模型获取字段列表（`DailyKlineData.get_required_columns()`）
+- 添加新字段只需修改 Pydantic 模型，Storage 层自动适配
 
 #### 4. Manager层 (`src/managers/`)
 
@@ -280,6 +286,7 @@ DATA_PATH=data/
 - **Tushare Pro API**: 股票数据源
 - **SQLite**: 数据存储（性能优化）
 - **Pandas**: 数据处理
+- **Pydantic**: 数据验证和规范化
 - **ThreadPoolExecutor**: 并发处理
 - **Loguru**: 日志管理
 
@@ -290,6 +297,7 @@ DATA_PATH=data/
 3. **API优化**：使用 pro_bar API，一次获取全部历史数据
 4. **复权因子集成**：复权因子已包含在日线数据中，无需单独爬取
 5. **线程安全**：使用锁机制确保API调用串行，避免IP超限
+6. **数据规范化**：使用 Pydantic 模型定义数据结构，简化 fetch 和 storage 流程
 
 ### 注意事项
 
