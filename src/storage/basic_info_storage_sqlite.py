@@ -48,13 +48,32 @@ class BasicInfoStorageSQLite(SQLiteBaseStorage):
             conn.commit()
             logger.debug(f"Basic info table initialized in {self.db_path}")
     
-    def load(self) -> Optional[pd.DataFrame]:
+    def load(self, 
+            market: str = None,
+            is_hs: str = None,
+            exchange: str = None,
+            industry: str = None,
+            area: str = None,
+            list_status: str = None,
+            ) -> Optional[pd.DataFrame]:
         """读取股票基本信息数据"""
+        filters = {
+            "market": market,
+            "is_hs": is_hs,
+            "exchange": exchange,
+            "industry": industry,
+            "area": area,
+            "list_status": list_status,
+        }
+        conditions = [f"{k} = ?" for k, v in filters.items() if v is not None]
+        params = [v for v in filters.values() if v is not None]
+        
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM basic_info {where_clause} ORDER BY ts_code"
+        
         try:
             with self._get_connection() as conn:
-                query = "SELECT * FROM basic_info ORDER BY ts_code"
-                df = pd.read_sql_query(query, conn)
-                
+                df = pd.read_sql_query(query, conn, params=params)
                 if df.empty:
                     return None
                 

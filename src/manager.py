@@ -22,7 +22,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional, List
+from typing import Optional, List, Union
 from tqdm import tqdm
 from loguru import logger
 from functools import cached_property
@@ -172,50 +172,43 @@ class Manager:
         logger.success("🎉 Full data update completed successfully!")
         logger.info("=" * 60)
 
-    def update_daily_kline(self, mode: str = "code", start_date: str = None, end_date: str = None):
+
+    def update_daily_kline(self, 
+                            ts_code: Union[List[str], str] = None,
+                            start_date: str = None,
+                            end_date: str = None
+                            ):
+        """更新股票日线数据主函数
+        - ts_code: 股票代码，可选，如果为None，则更新所有股票
+        - start_date: 开始日期，可选，如果为None，则更新最近一年数据
+        - end_date: 结束日期，可选，如果为None，则更新到今天
+        
+        流程:
+        1. 根据ts_code字段选择模式，如果ts_code is None, 使用按日期更新模式；否则用按股票代码更新模式
+        2. 设置日期，如果start_date和end_date为None，则使用最近一年数据和今天日期
+        3. 根据模式更新数据
+        
+        :param ts_code: 股票代码，可选，如果为None，则更新所有股票
+        :param start_date: 开始日期，可选，如果为None，则更新最近一年数据
+        :param end_date: 结束日期，可选，如果为None，则更新到今天
+        :return: 更新结果
         """
-        更新日线行情数据的主函数
+        # 设置模式
+        if ts_code is None:
+            mode = 'date'
+        else:
+            mode = 'code'
         
-        支持两种更新模式：
-        1. code模式：使用 pro_bar API 按股票代码获取过去一年的数据
-           - 遍历所有股票，每只股票调用一次 pro_bar 获取全部历史数据
-           - 适合首次全量爬取，数据完整
-        2. date模式：使用 pro.daily API 按交易日获取所有股票数据
-           - 遍历所有交易日，每个交易日调用一次 pro.daily 获取全市场数据
-           - 适合增量更新，补充特定日期的数据
-        
-        两种模式fetch方式不同，但写入SQLite的方式相同（都使用 write_batch）
-        爬取到数据后走多线程并发插入数据库
-        
-        流程：
-        1. 根据 mode 参数选择更新策略
-        2. code模式：调用 _update_by_code_mode()
-        3. date模式：调用 _update_by_date_mode()
-        4. 两种模式都使用 io_executor 多线程并发写入
-        
-        :param mode: 更新模式，"code" 或 "date"，默认 "code"
-        :param start_date: 开始日期，格式YYYYMMDD
-                          - code模式：获取从start_date到今天的近一年数据（默认365天）
-                          - date模式：从start_date开始更新到今天的交易日数据
-        """
-        if mode not in ["code", "date"]:
-            logger.error(f"Invalid mode: {mode}. Must be 'code' or 'date'")
-            return
-        
-        # 使用 DateHelper 统一处理日期格式（Manager 内部全部使用 YYYYMMDD）
-        # 日期应该已经在 scripts 层被标准化，这里做最后的兜底处理
-        if end_date is None:
-            end_date = DateHelper.today()
-        
-        if start_date is None:
-            start_date = DateHelper.days_ago(365)
-        
-        logger.info(f"Updating Daily Kline Data in {mode} mode from {start_date} to {end_date}")
-        
-        if mode == "code":
-            self._update_by_code_mode(start_date, end_date)
-        else:  # mode == "date"
+        # 设置日期
+        start_date = DateHelper.normalize(start_date) if start_date is not None else DateHelper.days_ago(365)
+        end_date = DateHelper.normalize(end_date) if end_date is not None else DateHelper.today()
+
+        # 根据模式更新数据
+        if mode == 'code':
+            self._update_by_code_mode(ts_code, start_date, end_date)
+        else:
             self._update_by_date_mode(start_date, end_date)
+
 
     def update_basic_info(self):
         """
@@ -285,6 +278,10 @@ class Manager:
             self.update_basic_info()
         result = self.basic_storage.load()
         return result if result is not None else pd.DataFrame()
+
+    
+
+
 
     def get_calendar(self, exchange: str = "SSE") -> pd.DataFrame:
         """
@@ -492,9 +489,37 @@ class Manager:
         logger.info("Date mode update completed.")
     
     
-    # ======================== load data =======================  
+    # ======================== 加载数据 =======================  
     def load_kline_data_from_sql(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         从 SQLite 数据库加载日线行情数据
+        - ts_code: 股票代码
+        - start_date: 开始日期，可选，如果为None，则更新最近一年数据
+        - end_date: 结束日期，可选，如果为None，则更新到今天
+        - return: 日线行情数据DataFrame
+        
         """
-        return self.daily_storage.load(ts_code, start_date, end_date)
+        df = self.daily_storage.load(ts_code, start_date, end_date)
+        validated_df = DailyKlineData.validate_dataframe(df)
+        logger.debug(f"Validated {len(validated_df)} rows of kline data for stock {ts_code}")
+        return validated_df
+
+    def load_basic_info(self, 
+                        market: str = None,
+                        is_hs: str = None,
+                        exchange: str = None,
+                        industry: str = None,
+                        area: str = None,
+                        list_status: str = None,
+                        ) -> pd.DataFrame:
+        df = self.basic_storage.load(market=market, is_hs=is_hs, exchange=exchange, industry=industry, area=area, list_status=list_status)
+        validated_df = BasicInfoData.validate_dataframe(df)
+        logger.debug(f"Validated {len(validated_df)} rows of basic info")
+        return validated_df
+
+
+
+
+
+
+        
