@@ -115,7 +115,7 @@ class Manager:
 
     # ==================== Public Update Methods ====================
 
-    def update_all(self, mode: str = "code", start_date: str = None, end_date: str = None):
+    def update_all(self, start_date: str = None, end_date: str = None):
         """
         一键更新所有数据
         
@@ -137,13 +137,10 @@ class Manager:
                           - code模式：获取从start_date到今天的近一年数据
                           - date模式：从start_date开始更新到今天的交易日数据
         """
-        if mode not in ["code", "date"]:
-            logger.error(f"Invalid mode: {mode}. Must be 'code' or 'date'")
-            return
+
         
         logger.info("=" * 60)
         logger.info("Starting full data update...")
-        logger.info(f"Update mode: {mode.upper()}")
         if start_date:
             logger.info(f"Start date: {start_date}")
         else:
@@ -166,8 +163,9 @@ class Manager:
         
         # 2. 核心数据 (Daily Kline) - 根据模式选择不同的更新策略
         logger.info("Step 2/2: Updating Daily Kline Data...")
-        self.update_daily_kline(mode=mode, start_date=start_date, end_date=end_date)
-        
+
+        self.update_daily_kline(start_date=start_date, end_date=end_date)
+
         logger.info("=" * 60)
         logger.success("🎉 Full data update completed successfully!")
         logger.info("=" * 60)
@@ -339,12 +337,12 @@ class Manager:
         logger.debug(f"Saving {len(df)} rows of kline data to SQLite...")
         return self.daily_storage.write(df)
 
-    def _update_by_code_mode(self, start_date: str, end_date: str):
+    def _update_by_code_mode(self, ts_codes: List[str], start_date: str, end_date: str):
         """
         Code模式：使用 pro_bar API 按股票代码获取数据
         
         流程：
-        1. 获取所有股票代码列表（从 basic_info）
+        1. 获取股票代码列表（如果 ts_code 为 None，则获取所有股票；否则使用指定的股票代码）
         2. 遍历每只股票（使用 tqdm 显示进度）
            2.1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票过去一年的数据
            2.2. 提交到 io_executor，异步执行 storage.write_batch() 批量写入
@@ -355,17 +353,16 @@ class Manager:
         - 使用 io_executor 并发写入（提升写入性能）
         - 适合首次爬取，数据完整
         
+        :param ts_code: 股票代码，可以是单个字符串、字符串列表或 None（None 表示更新所有股票）
         :param start_date: 开始日期，格式YYYYMMDD
         :param end_date: 结束日期，格式YYYYMMDD
         """
-        # 1. 获取所有股票代码
-        basic_info = self.all_basic_info
-        if basic_info is None or basic_info.empty:
-            logger.error("Failed to get stock codes. Please update basic info first.")
-            return
-        
-        ts_codes = basic_info["ts_code"].tolist()
-        logger.info(f"Code mode: Updating Daily Kline for {len(ts_codes)} stocks...")
+        # 1. 获取股票代码列表
+        if len(ts_code) == 0:
+            raise ValueError("股票代码列表不能为空")
+
+
+        logger.info(f"更新{len(ts_codes)}只股票日线行情数据...")
         
         # 2. 遍历股票代码，批量更新
         pending_futures = []
@@ -513,7 +510,9 @@ class Manager:
                         list_status: str = None,
                         ) -> pd.DataFrame:
         df = self.basic_storage.load(market=market, is_hs=is_hs, exchange=exchange, industry=industry, area=area, list_status=list_status)
-        validated_df = BasicInfoData.validate_dataframe(df)
+        validated_df, failed_records = validate_basic_info_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
         logger.debug(f"Validated {len(validated_df)} rows of basic info")
         return validated_df
 
