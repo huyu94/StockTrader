@@ -48,7 +48,7 @@ class IndicatorCalculator:
     def calculate_all(
         self, 
         df: pd.DataFrame,
-        ma_periods: List[int] = [5, 10, 20, 60],
+        ma_periods: List[int] = [5, 10, 20,30, 60],
         kdj_period: int = 9,
         macd_fast: int = 12,
         macd_slow: int = 26,
