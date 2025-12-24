@@ -57,9 +57,9 @@ def run_batch():
     
     stock_pool = runner.run_batch(
         strategy_class=KDJStrategy,
-        target_date="20251223",
+        target_date="20251224",
         start_date="20250201",
-        end_date="20251223",
+        end_date="20251224",
         strategy_kwargs={
             "kdj_period": 9,
             "vol_period": 20,
