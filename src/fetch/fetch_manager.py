@@ -33,14 +33,14 @@ from src.storage.basic_info_storage_sqlite import BasicInfoStorageSQLite
 from src.storage.calendar_storage_sqlite import CalendarStorageSQLite
 
 # Fetchers
-from src.fetchers.daily_kline_fetcher import DailyKlineFetcher
-from src.fetchers.basic_info_fetcher import BasicInfoFetcher
-from src.fetchers.calendar_fetcher import CalendarFetcher
+from src.fetch.fetchers.daily_kline_fetcher import DailyKlineFetcher
+from src.fetch.fetchers.basic_info_fetcher import BasicInfoFetcher
+from src.fetch.fetchers.calendar_fetcher import CalendarFetcher
 # utils
 from src.utils.date_helper import DateHelper
 
 # Model
-from src.models.stock_models import (
+from src.fetch.models.stock_models import (
     DailyKlineData,
     BasicInfoData,
     TradeCalendarData,
@@ -484,7 +484,6 @@ class Manager:
                 logger.warning(f"⚠️  {failed_count} dates failed to write. Data may be incomplete.")
                 logger.warning(f"💡 Tip: Reduce io_executor max_workers to 1-2 to avoid database locks.")
         logger.info("Date mode update completed.")
-    
     
     # ======================== 加载数据 =======================  
     def load_kline_data_from_sql(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
