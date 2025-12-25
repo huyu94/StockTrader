@@ -71,7 +71,7 @@ def main():
         data_manager = Manager()
         
         # 一键更新所有数据（传入的日期已经是 YYYYMMDD 格式）
-        data_manager.update_all(mode=args.mode, start_date=start_date, end_date=end_date)
+        data_manager.update_all( start_date=start_date, end_date=end_date)
         
     except KeyboardInterrupt:
         logger.warning("⚠️ Job interrupted by user.")
