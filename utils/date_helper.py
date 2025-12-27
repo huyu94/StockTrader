@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from typing import Union
 
 class DateHelper:
     """
@@ -11,7 +12,7 @@ class DateHelper:
     """
     
     @staticmethod
-    def normalize(date_str: str) -> str:
+    def normalize_str_to_str(date_str: str) -> str:
         """
         标准化日期格式为 YYYYMMDD（项目统一格式）
         
@@ -77,4 +78,50 @@ class DateHelper:
         :return: N天前的日期字符串
         """
         return (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+    
+    @staticmethod
+    def parse_to_str(date_obj: Union[date, datetime, str]) -> str:
+        """
+        将日期对象转换为YYYYMMDD格式字符串
+        
+        :param date_obj: 日期对象（date, datetime, str）
+        :return: YYYYMMDD格式字符串
+        """
+        if isinstance(date_obj, datetime):
+            return date_obj.strftime('%Y%m%d')
+        elif isinstance(date_obj, date):
+            return date_obj.strftime('%Y%m%d')
+        elif isinstance(date_obj, str):
+            return DateHelper.normalize_str_to_str(date_obj)
 
+    @staticmethod
+    def parse_to_date(date_obj: Union[date, datetime, str]) -> date:
+        """
+        将日期字符串转换为date对象
+        
+        :param date_str: YYYYMMDD格式字符串
+        :return: date对象
+        """
+        if isinstance(date_obj, datetime):
+            return date_obj.date()
+        elif isinstance(date_obj, date):
+            return date_obj
+        elif isinstance(date_obj, str):
+            return datetime.strptime(date_obj, '%Y%m%d').date()
+    
+    @staticmethod
+    def parse_to_datetime(date_obj: Union[date, datetime, str]) -> datetime:
+        """
+        将日期字符串转换为datetime对象
+        
+        :param date_str: YYYYMMDD格式字符串
+        :return: datetime对象
+        """
+        if isinstance(date_obj, datetime):
+            return date_obj
+        elif isinstance(date_obj, date):
+            return datetime.combine(date_obj, datetime.min.time())
+        elif isinstance(date_obj, str):
+            return datetime.strptime(date_obj, '%Y%m%d')
+    
+    
