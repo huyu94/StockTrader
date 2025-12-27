@@ -22,4 +22,6 @@ dependencies = [
     "tqdm>=4.67.1",
     "tushare>=1.4.24",
     "uvicorn>=0.38.0",
+    "sqlalchemy>=2.0.0",
+    "pymysql>=1.1.0",
 ]
