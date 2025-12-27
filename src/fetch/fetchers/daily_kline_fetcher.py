@@ -3,6 +3,7 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 from src.providers import BaseProvider, TushareProvider
+from utils.date_helper import DateHelper
 import dotenv
 
 dotenv.load_dotenv()
@@ -45,8 +46,13 @@ class DailyKlineFetcher:
         按日期获取全市场日线行情（用于增量更新场景）
         注意：此方法使用 daily API，因为 pro_bar 不支持按日期获取全市场数据
         在增量更新时，当某个交易日缺失数据较多时，使用此方法批量获取该日所有股票数据
+        
+        :param trade_date: 交易日期（YYYY-MM-DD 格式，内部统一格式）
         """
-        df = self.provider.query("daily", trade_date=trade_date)
+        # Tushare API 需要 YYYYMMDD 格式，转换日期
+        trade_date_yyyymmdd = DateHelper.normalize_to_yyyymmdd(trade_date)
+        
+        df = self.provider.query("daily", trade_date=trade_date_yyyymmdd)
         if df is None or df.empty:
             logger.warning(f"No daily data found for date: {trade_date}")
             return pd.DataFrame()

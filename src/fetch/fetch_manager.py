@@ -200,9 +200,16 @@ class Manager:
         else:
             mode = 'code'
         
-        # 设置日期
-        start_date = DateHelper.normalize(start_date) if start_date is not None else DateHelper.days_ago(365)
-        end_date = DateHelper.normalize(end_date) if end_date is not None else DateHelper.today()
+        # 设置日期（统一转换为 YYYY-MM-DD 格式，用户输入可能是 YYYYMMDD 或 YYYY-MM-DD）
+        if start_date is not None:
+            start_date = DateHelper.normalize_to_yyyy_mm_dd(start_date)
+        else:
+            start_date = DateHelper.days_ago(365)  # 现在直接返回 YYYY-MM-DD 格式
+        
+        if end_date is not None:
+            end_date = DateHelper.normalize_to_yyyy_mm_dd(end_date)
+        else:
+            end_date = DateHelper.today()  # 现在直接返回 YYYY-MM-DD 格式
 
         # 根据模式更新数据
         if mode == 'code':
@@ -252,8 +259,9 @@ class Manager:
             if self.calendar_storage.check_update_needed(ex):
                 logger.info(f"Updating calendar for {ex}...")
                 now = pd.Timestamp.now()
-                end_date = now.strftime("%Y%m%d")
-                start_date = (now - timedelta(days=365)).strftime("%Y%m%d")
+                # 内部使用 YYYY-MM-DD 格式
+                end_date = now.strftime("%Y-%m-%d")
+                start_date = (now - timedelta(days=365)).strftime("%Y-%m-%d")
                 
                 df = self.calendar_fetcher.fetch(start_date=start_date, end_date=end_date, exchange=ex)
                 if df is not None and not df.empty:
@@ -428,14 +436,14 @@ class Manager:
             logger.error("Failed to get trade calendar. Please update calendar first.")
             return
         
-        # 筛选指定日期范围内的交易日（使用 DateHelper 统一处理为 YYYYMMDD）
+        # 筛选指定日期范围内的交易日（统一使用 YYYY-MM-DD 格式）
         calendar_df_copy = calendar_df.copy()
         if "cal_date" in calendar_df_copy.columns:
-            # 统一转换为 YYYYMMDD 格式进行比较
+            # 统一转换为 YYYY-MM-DD 格式进行比较
             calendar_df_copy["cal_date"] = calendar_df_copy["cal_date"].astype(str)
             def normalize_date(d):
                 try:
-                    return DateHelper.normalize(d)
+                    return DateHelper.normalize_to_yyyy_mm_dd(str(d))
                 except:
                     return None
             calendar_df_copy["cal_date"] = calendar_df_copy["cal_date"].apply(normalize_date)

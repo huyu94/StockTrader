@@ -3,6 +3,7 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 from src.providers import BaseProvider, TushareProvider
+from utils.date_helper import DateHelper
 import dotenv
 dotenv.load_dotenv()
 
@@ -15,6 +16,10 @@ class CalendarFetcher:
     def fetch(self, start_date: Optional[str], end_date: Optional[str], exchange: str = "SSE") -> pd.DataFrame:
         """
         获取交易日历
+        
+        :param start_date: 开始日期（YYYY-MM-DD 格式，内部统一格式）
+        :param end_date: 结束日期（YYYY-MM-DD 格式，内部统一格式）
+        :param exchange: 交易所代码
         """
         if self.provider_name != "tushare":
             raise ValueError("Only tushare provider is supported for calendar fetching")
@@ -23,10 +28,11 @@ class CalendarFetcher:
         fields = "exchange,cal_date,is_open"
         
         params = {"exchange": exchange, "is_open": 1}
+        # Tushare API 需要 YYYYMMDD 格式，转换日期
         if start_date:
-            params["start_date"] = start_date
+            params["start_date"] = DateHelper.normalize_to_yyyymmdd(start_date)
         if end_date:
-            params["end_date"] = end_date
+            params["end_date"] = DateHelper.normalize_to_yyyymmdd(end_date)
             
         logger.info(f"Fetching calendar for {exchange}...")
         df = self.provider.query("trade_cal", fields=fields, **params)
