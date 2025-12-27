@@ -2,10 +2,10 @@
 策略运行器 (StrategyRunner)
 
 提供统一的策略运行接口，支持单股票和批量运行。
-考虑SQLite并发读取的可行性，提供可选的并发支持。
+考虑MySQL并发读取的可行性，提供可选的并发支持。
 
-SQLite并发说明：
-- SQLite支持多个读连接并发读取（WAL模式已启用）
+MySQL并发说明：
+- MySQL支持多个读连接并发读取（连接池模式）
 - 并发模式下共享 Storage 实例，避免资源浪费
 - Storage 的 _get_connection() 每次调用都创建新连接，是线程安全的
 - 默认使用串行模式，确保稳定性
@@ -21,7 +21,7 @@ from loguru import logger
 
 from src.manager import Manager
 from src.strategies.base_strategy import BaseStrategy
-from src.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
+from src.storage import DailyKlineStorage
 from project_var import OUTPUT_DIR
 
 
@@ -144,7 +144,7 @@ class StrategyRunner:
         :param end_date: 结束日期（YYYYMMDD格式）
         :param strategy_kwargs: 策略初始化参数
         :param ts_codes: 股票代码列表，如果为None则使用所有股票
-        :param use_concurrent: 是否使用并发（默认False，因为SQLite并发读取需要测试）
+        :param use_concurrent: 是否使用并发（默认False）
         :param max_workers: 并发时的最大工作线程数（仅在use_concurrent=True时有效）
         :param save_results: 是否保存结果到文件
         :param output_filename: 输出文件名（不含扩展名）
@@ -308,7 +308,7 @@ class StrategyRunner:
         并发模式运行批量策略
         
         优化：共享 Storage 实例，避免每个线程创建 Manager
-        - SQLite 在 WAL 模式下支持多个读连接并发读取
+        - MySQL 在连接池模式下支持多个读连接并发读取
         - Storage 的 _get_connection() 每次调用都创建新连接，是线程安全的
         - 所有线程共享同一个 daily_storage 实例，大幅减少资源占用
         - 4个并发线程只需要 1 个 Storage 实例，而不是 4 个 Manager（12个Storage）
@@ -316,13 +316,13 @@ class StrategyRunner:
         stock_pool = []
         
         # 创建共享的 Storage 实例（只创建一次，所有线程共享）
-        shared_storage = DailyKlineStorageSQLite()
+        shared_storage = DailyKlineStorage()
         
         def run_single_stock(ts_code: str) -> Dict[str, Any]:
             """在单个线程中运行策略"""
             try:
                 # 使用共享的 Storage 实例，每个线程只创建策略实例
-                # SQLite 的 _get_connection() 每次创建新连接，支持并发读取
+                # MySQL 的 _get_session() 每次创建新会话，支持并发读取
                 thread_strategy = strategy_class(
                     storage=shared_storage,  # 共享 Storage 实例
                     **strategy_kwargs

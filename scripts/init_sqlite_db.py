@@ -12,10 +12,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import setup_logger
 setup_logger()
 
-from src.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
-from src.storage.adj_factor_storage_sqlite import AdjFactorStorageSQLite
-from src.storage.basic_info_storage_sqlite import BasicInfoStorageSQLite
-from src.storage.calendar_storage_sqlite import CalendarStorageSQLite
+from src.data.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
+from src.data.storage.basic_info_storage_sqlite import BasicInfoStorageSQLite
+from src.data.storage.calendar_storage_sqlite import CalendarStorageSQLite
 
 
 def init_database():

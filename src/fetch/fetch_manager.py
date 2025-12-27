@@ -7,7 +7,7 @@
 架构流程：
 1. Provider层：封装API调用（TushareProvider），确保串行调用避免IP超限
 2. Fetcher层：数据获取逻辑（DailyKlineFetcher等），调用Provider获取数据
-3. Storage层：数据持久化（SQLite存储），批量写入优化性能
+3. Storage层：数据持久化（MySQL存储），批量写入优化性能
 4. Manager层：统一协调，智能选择更新策略（全量/增量）
 
 更新策略：
@@ -15,10 +15,11 @@
 - 增量更新（按交易日）：定期更新时使用，基于数据存在性矩阵，只更新缺失数据
 
 性能优化：
-- SQLite批量写入：单次事务写入所有数据，性能提升5-15倍
+- MySQL批量写入：单次事务写入所有数据，性能提升5-15倍
 - 线程池管理：IO线程池（20线程）处理文件写入，任务线程池（1线程）调度后台任务
 - 流水线处理：获取和写入并行进行，不阻塞主循环
 """
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,10 +28,12 @@ from tqdm import tqdm
 from loguru import logger
 from functools import cached_property
 
-# Storage (SQLite版本)
-from src.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
-from src.storage.basic_info_storage_sqlite import BasicInfoStorageSQLite
-from src.storage.calendar_storage_sqlite import CalendarStorageSQLite
+# Storage (MySQL存储)
+from src.storage import (
+    DailyKlineStorage,
+    BasicInfoStorage,
+    CalendarStorage
+)
 
 # Fetchers
 from src.fetch.fetchers.daily_kline_fetcher import DailyKlineFetcher
@@ -68,7 +71,7 @@ class Manager:
     2. _update_stock_data() → 检查历史数据，选择更新策略
     3. _update_all_stocks_full() 或 _update_missing_data_incremental() → 执行更新
     4. Fetcher.fetch_xxx() → 调用Provider获取数据
-    5. Storage.write_xxx() → 写入SQLite数据库
+    5. Storage.write_xxx() → 写入MySQL数据库
     """
     
     def __init__(self, provider_name: str = "tushare"):
@@ -77,7 +80,7 @@ class Manager:
         
         流程：
         1. 创建线程池（IO线程池和任务线程池）
-        2. 实例化所有Storage类（SQLite版本）
+        2. 实例化所有Storage类（MySQL版本）
         3. 实例化所有Fetcher类
         4. 实例化Matrix Manager（用于增量更新）
         
@@ -92,11 +95,11 @@ class Manager:
         #   1个工作线程，确保任务按顺序执行，避免资源竞争
         self.task_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="TaskWorker")
         
-        # ========== 实例化 Storage（全部使用SQLite）==========
-        logger.info("Using SQLite storage for all data types (better performance)")
-        self.daily_storage = DailyKlineStorageSQLite()      # 日线行情存储
-        self.basic_storage = BasicInfoStorageSQLite()       # 股票基本信息存储
-        self.calendar_storage = CalendarStorageSQLite()      # 交易日历存储
+        # ========== 实例化 Storage（MySQL）==========
+        logger.info("Using MySQL storage for all data types")
+        self.daily_storage = DailyKlineStorage()      # 日线行情存储
+        self.basic_storage = BasicInfoStorage()       # 股票基本信息存储
+        self.calendar_storage = CalendarStorage()      # 交易日历存储
         
         # ========== 实例化 Fetchers ==========
         self.daily_fetcher = DailyKlineFetcher(provider_name=provider_name)
@@ -215,7 +218,7 @@ class Manager:
         流程：
         1. 检查是否需要更新（通过 check_update_needed()）
         2. 如果需要更新，调用 Fetcher 获取数据
-        3. 写入 SQLite 数据库
+        3. 写入 MySQL 数据库
         
         注意：此方法会检查缓存，如果今日已更新则跳过
         """
@@ -240,7 +243,7 @@ class Manager:
         1. 遍历所有交易所（SSE、SZSE）
         2. 检查每个交易所是否需要更新
         3. 获取最近一年的交易日历数据
-        4. 写入 SQLite 数据库
+        4. 写入 MySQL 数据库
         
         :param exchange: 交易所代码（默认SSE，但实际会更新SSE和SZSE两个）
         """
@@ -328,13 +331,13 @@ class Manager:
 
     def _save_kline_data_to_sql(self, df: pd.DataFrame) -> bool:
         """
-        将日线行情数据保存到 SQLite 数据库
+        将日线行情数据保存到 MySQL 数据库
         
         流程：
         1. 调用 storage.write_batch() 批量写入
         2. 返回 True 表示成功，False 表示失败
         """
-        logger.debug(f"Saving {len(df)} rows of kline data to SQLite...")
+        logger.debug(f"Saving {len(df)} rows of kline data to MySQL...")
         return self.daily_storage.write(df)
 
     def _update_by_code_mode(self, ts_codes: List[str], start_date: str, end_date: str):
@@ -488,7 +491,7 @@ class Manager:
     # ======================== 加载数据 =======================  
     def load_kline_data_from_sql(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        从 SQLite 数据库加载日线行情数据
+        从 MySQL 数据库加载日线行情数据
         - ts_code: 股票代码
         - start_date: 开始日期，可选，如果为None，则更新最近一年数据
         - end_date: 结束日期，可选，如果为None，则更新到今天

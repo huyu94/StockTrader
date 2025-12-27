@@ -28,7 +28,7 @@ class SimpleMAStrategy(BaseStrategy):
         """
         初始化策略
         
-        :param storage: 日线数据存储对象（DailyKlineStorageSQLite实例）
+        :param storage: 日线数据存储对象（MySQL存储）
         :param ma_short: 短期移动平均线周期，默认5
         :param ma_long: 长期移动平均线周期，默认20
         """

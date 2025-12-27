@@ -53,7 +53,7 @@ class KDJStrategy(BaseStrategy):
         """
         初始化策略
         
-        :param storage: 日线数据存储对象（DailyKlineStorageSQLite实例）
+        :param storage: 日线数据存储对象（MySQL存储）
         :param kdj_period: KDJ指标计算周期，默认9
         :param vol_period: 成交量比较周期，默认20
         :param j_threshold: J值阈值，默认5.0（J值必须小于等于此值）

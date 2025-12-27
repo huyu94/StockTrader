@@ -33,9 +33,9 @@ class BaseStrategy(ABC):
     
     使用方式：
     ```python
-    from src.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
+    from src.storage import DailyKlineStorage
     
-    storage = DailyKlineStorageSQLite()
+    storage = DailyKlineStorage()  # MySQL存储
     
     class MyStrategy(BaseStrategy):
         def _preprocess(self, ts_code: str, df: pd.DataFrame) -> pd.DataFrame:
@@ -58,7 +58,7 @@ class BaseStrategy(ABC):
         """
         初始化策略
         
-        :param storage: 日线数据存储对象（DailyKlineStorageSQLite实例）
+        :param storage: 日线数据存储对象（DailyKlineStorage实例，MySQL存储）
                        如果不提供，需要在使用前设置 self.storage
         :param name: 策略名称，如果不提供则使用类名
         """
