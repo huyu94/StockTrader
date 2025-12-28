@@ -193,11 +193,12 @@ class MySQLBaseStorage:
         return inserted_count
     
     def _bulk_insert_dataframe(
-        self,
-        session: Session,
-        model_class,
-        df: pd.DataFrame,
-        chunk_size: int = 1000
+    self,
+    session: Session,
+    model_class,
+    df: pd.DataFrame,
+    chunk_size: int = 1000,
+    ignore_duplicates: bool = False
     ) -> int:
         """
         批量插入DataFrame到数据库（不处理重复，直接插入）
@@ -207,7 +208,8 @@ class MySQLBaseStorage:
             model_class: ORM模型类
             df: 要写入的DataFrame
             chunk_size: 每批写入的行数
-            
+            ignore_duplicates: 如果为True，遇到主键冲突时跳过（使用INSERT IGNORE）
+                
         Returns:
             插入的行数
         """
@@ -221,13 +223,53 @@ class MySQLBaseStorage:
         records = df_clean.to_dict('records')
         total_rows = len(records)
         
-        # 使用SQLAlchemy的bulk_insert_mappings进行批量插入
-        inserted_count = 0
-        for i in range(0, total_rows, chunk_size):
-            chunk = records[i:i + chunk_size]
-            session.bulk_insert_mappings(model_class, chunk)
-            inserted_count += len(chunk)
+        # 获取表名
+        table = model_class.__table__
+        table_name = table.name
         
-        logger.debug(f"Bulk inserted {inserted_count} rows into {model_class.__table__.name}")
+        # 计算总批次数
+        total_chunks = (total_rows + chunk_size - 1) // chunk_size
+        
+        inserted_count = 0
+        
+        if ignore_duplicates:
+            # 使用 INSERT IGNORE 跳过重复数据
+            with tqdm(total=total_chunks, desc=f"插入 {table_name}", unit="批", leave=False) as pbar:
+                for i in range(0, total_rows, chunk_size):
+                    chunk = records[i:i + chunk_size]
+                    chunk_num = i // chunk_size + 1
+                    
+                    pbar.set_description(f"插入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
+                    
+                    # 构建 INSERT IGNORE 语句
+                    columns = list(chunk[0].keys())
+                    columns_str = ', '.join([f'`{col}`' for col in columns])
+                    placeholders = ', '.join([f':{col}' for col in columns])
+                    
+                    sql = f"""
+                        INSERT IGNORE INTO `{table_name}` ({columns_str})
+                        VALUES ({placeholders})
+                    """
+                    
+                    stmt = text(sql)
+                    for record in chunk:
+                        params = {col: record.get(col) for col in columns}
+                        session.execute(stmt, params)
+                    
+                    inserted_count += len(chunk)
+                    pbar.update(1)
+        else:
+            # 使用 SQLAlchemy 的 bulk_insert_mappings（遇到重复会报错）
+            with tqdm(total=total_chunks, desc=f"插入 {table_name}", unit="批", leave=False) as pbar:
+                for i in range(0, total_rows, chunk_size):
+                    chunk = records[i:i + chunk_size]
+                    chunk_num = i // chunk_size + 1
+                    
+                    pbar.set_description(f"插入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
+                    
+                    session.bulk_insert_mappings(model_class, chunk)
+                    inserted_count += len(chunk)
+                    pbar.update(1)
+        
+        logger.debug(f"Bulk inserted {inserted_count} rows into {table_name}")
         return inserted_count
-
