@@ -3,7 +3,7 @@
 使用MySQL数据库和SQLAlchemy ORM，支持批量写入
 """
 import pandas as pd
-from typing import Optional, List
+from typing import Optional, List, Union
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
 from .orm_models import Base, DailyKlineORM
@@ -66,11 +66,11 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
                 return pd.DataFrame()
             
             with self._get_session() as session:
-                query = session.query(DailyKline).filter(
-                    DailyKline.ts_code == ts_code,
-                    DailyKline.trade_date >= start_date_normalized,
-                    DailyKline.trade_date <= end_date_normalized
-                ).order_by(DailyKline.trade_date)
+                query = session.query(DailyKlineORM).filter(
+                    DailyKlineORM.ts_code == ts_code,
+                    DailyKlineORM.trade_date >= start_date_normalized,
+                    DailyKlineORM.trade_date <= end_date_normalized
+                ).order_by(DailyKlineORM.trade_date)
                 
                 results = query.all()
                 
@@ -121,27 +121,10 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         try:
             # 确保日期格式正确（YYYY-MM-DD用于MySQL存储）
             df_copy = df.copy()
-            if "trade_date" in df_copy.columns:
-                # 统一日期格式：使用DateHelper处理，然后转换为YYYY-MM-DD
-                if df_copy["trade_date"].dtype == 'object':
-                    def normalize_date(d):
-                        try:
-                            if pd.isna(d):
-                                return None
-                            # 使用DateHelper统一处理，然后转换为YYYY-MM-DD
-                            normalized = DateHelper.parse_to_str(str(d))
-                            return DateHelper.to_display(normalized)
-                        except:
-                            return None
-                    df_copy["trade_date"] = df_copy["trade_date"].apply(normalize_date)
-                elif pd.api.types.is_datetime64_any_dtype(df_copy["trade_date"]):
-                    # 如果是datetime类型，使用DateHelper处理
-                    df_copy["trade_date"] = df_copy["trade_date"].apply(
-                        lambda d: DateHelper.to_display(DateHelper.parse_to_str(d)) if pd.notna(d) else None
-                    )
+
             
             # 获取表中实际存在的列
-            model_columns = {col.name for col in DailyKline.__table__.columns}
+            model_columns = {col.name for col in DailyKlineORM.__table__.columns}
             available_columns = [col for col in df_copy.columns if col in model_columns]
             
             if not available_columns:
@@ -152,7 +135,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             
             # 使用批量UPSERT写入
             with self._get_session() as session:
-                self._bulk_upsert_dataframe(session, DailyKline, df_to_write)
+                self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write)
             
             logger.debug(f"✓ Write succeeded ({len(df_to_write)} rows)")
             return True
@@ -160,17 +143,20 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         except Exception as e:
             logger.error(f"❌ Failed to write data: {e}")
             return False
-    
-    def load_multiple(self, ts_codes: List[str]) -> pd.DataFrame:
-        """批量读取多只股票的数据"""
+
+    def load(self, ts_codes: Union[List[str], str]) -> pd.DataFrame:
+        """读取多只股票的数据"""
         try:
+            if isinstance(ts_codes, str):
+                ts_codes = [ts_codes]
+                
             if not ts_codes:
                 return pd.DataFrame()
             
             with self._get_session() as session:
-                query = session.query(DailyKline).filter(
-                    DailyKline.ts_code.in_(ts_codes)
-                ).order_by(DailyKline.ts_code, DailyKline.trade_date)
+                query = session.query(DailyKlineORM).filter(
+                    DailyKlineORM.ts_code.in_(ts_codes)
+                ).order_by(DailyKlineORM.ts_code, DailyKlineORM.trade_date)
                 
                 results = query.all()
                 
@@ -195,7 +181,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         try:
             with self._get_session() as session:
                 # 使用distinct查询
-                count = session.query(DailyKline.ts_code).distinct().count()
+                count = session.query(DailyKlineORM.ts_code).distinct().count()
                 return count
         except Exception as e:
             logger.error(f"Failed to get stock count: {e}")
@@ -205,7 +191,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         """获取数据库总行数"""
         try:
             with self._get_session() as session:
-                count = session.query(DailyKline).count()
+                count = session.query(DailyKlineORM).count()
                 return count
         except Exception as e:
             logger.error(f"Failed to get total rows: {e}")

@@ -90,11 +90,8 @@ class AdjFactorFetcher:
                 ts_codes = ex_date_df['ts_code'].tolist()
                 adj_factor_df = self._fetch_adj_factor(ts_codes, trade_date_str)
                 result_df = adj_factor_df[adj_factor_df['ts_code'].isin(ts_codes)]
-                if result_df.empty:
-                    continue
-
-                all_results.append(result_df)
-                
+                if not result_df.empty:
+                    all_results.append(result_df)
                 # 移动到下一天
                 current_date += timedelta(days=1)
                 pbar.update(1)
