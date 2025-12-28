@@ -94,7 +94,8 @@ class MySQLBaseStorage:
         model_class,
         df: pd.DataFrame,
         chunk_size: int = 1000,
-        preserve_null_columns: list = None
+        preserve_null_columns: list = None,
+        show_progress: bool = True
     ) -> int:
         """
         批量写入DataFrame到数据库（支持UPSERT）
@@ -105,6 +106,7 @@ class MySQLBaseStorage:
             df: 要写入的DataFrame
             chunk_size: 每批写入的行数
             preserve_null_columns: 如果新值为NULL则保留现有值的列名列表（使用COALESCE）
+            show_progress: 是否显示进度条（默认True）
             
         Returns:
             写入的行数
@@ -131,15 +133,25 @@ class MySQLBaseStorage:
         # 计算总批次数
         total_chunks = (total_rows + chunk_size - 1) // chunk_size
         
-        # 分批处理，使用 tqdm 显示进度
+        # 分批处理，根据 show_progress 决定是否显示进度条
         inserted_count = 0
-        with tqdm(total=total_chunks, desc=f"写入 {table_name}", unit="批", leave=False) as pbar:
+        
+        # 使用 contextlib.nullcontext 来支持可选的进度条
+        from contextlib import nullcontext
+        
+        if show_progress:
+            pbar_context = tqdm(total=total_chunks, desc=f"写入 {table_name}", unit="批", leave=False)
+        else:
+            pbar_context = nullcontext()
+        
+        with pbar_context as pbar:
             for i in range(0, total_rows, chunk_size):
                 chunk = records[i:i + chunk_size]
                 chunk_num = i // chunk_size + 1
                 
-                # 更新进度条描述
-                pbar.set_description(f"写入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
+                # 更新进度条描述（如果显示进度条）
+                if show_progress:
+                    pbar.set_description(f"写入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
                 
                 # 构建UPSERT语句（MySQL的INSERT ... ON DUPLICATE KEY UPDATE）
                 # 获取所有列名
@@ -186,8 +198,9 @@ class MySQLBaseStorage:
                     session.execute(stmt, params)
                 inserted_count += len(chunk)
                 
-                # 更新进度条
-                pbar.update(1)
+                # 更新进度条（如果显示进度条）
+                if show_progress:
+                    pbar.update(1)
         
         logger.debug(f"Bulk upserted {inserted_count} rows into {table_name}")
         return inserted_count
@@ -198,7 +211,8 @@ class MySQLBaseStorage:
     model_class,
     df: pd.DataFrame,
     chunk_size: int = 1000,
-    ignore_duplicates: bool = False
+    ignore_duplicates: bool = False,
+    show_progress: bool = True
     ) -> int:
         """
         批量插入DataFrame到数据库（不处理重复，直接插入）
@@ -232,9 +246,16 @@ class MySQLBaseStorage:
         
         inserted_count = 0
         
+        # 根据 show_progress 决定是否显示进度条
+        if show_progress:
+            pbar_context = tqdm(total=total_chunks, desc=f"写入 {table_name}", unit="批", leave=False)
+        else:
+            from contextlib import nullcontext
+            pbar_context = nullcontext()
+
         if ignore_duplicates:
             # 使用 INSERT IGNORE 跳过重复数据
-            with tqdm(total=total_chunks, desc=f"插入 {table_name}", unit="批", leave=False) as pbar:
+            with pbar_context as pbar:
                 for i in range(0, total_rows, chunk_size):
                     chunk = records[i:i + chunk_size]
                     chunk_num = i // chunk_size + 1
@@ -257,10 +278,12 @@ class MySQLBaseStorage:
                         session.execute(stmt, params)
                     
                     inserted_count += len(chunk)
-                    pbar.update(1)
+                    if show_progress:
+                        pbar.set_description(f"插入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
+                        pbar.update(1)
         else:
             # 使用 SQLAlchemy 的 bulk_insert_mappings（遇到重复会报错）
-            with tqdm(total=total_chunks, desc=f"插入 {table_name}", unit="批", leave=False) as pbar:
+            with pbar_context as pbar:
                 for i in range(0, total_rows, chunk_size):
                     chunk = records[i:i + chunk_size]
                     chunk_num = i // chunk_size + 1
@@ -269,7 +292,8 @@ class MySQLBaseStorage:
                     
                     session.bulk_insert_mappings(model_class, chunk)
                     inserted_count += len(chunk)
-                    pbar.update(1)
-        
+                    if show_progress:
+                        pbar.set_description(f"插入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
+                        pbar.update(1)
         logger.debug(f"Bulk inserted {inserted_count} rows into {table_name}")
         return inserted_count

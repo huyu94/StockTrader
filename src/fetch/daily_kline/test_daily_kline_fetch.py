@@ -12,9 +12,9 @@ def main():
     
     provider = TushareProvider()
     storage = DailyKlineStorageMySQL()
-    daily_kline_fetcher = DailyKlineFetcher(provider, storage)
+    daily_kline_fetcher = DailyKlineFetcher(provider, storage, max_write_workers=15)
 
-    daily_kline_fetcher.update(start_date="2025-12-21", end_date="2025-12-25")
+    daily_kline_fetcher.update(start_date="2025-01-01", end_date="2025-12-25")
 
 if __name__ == "__main__":
     # test_adj_factor_fetch()

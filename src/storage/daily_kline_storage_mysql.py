@@ -101,7 +101,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             result[column.name] = value
         return result
     
-    def write(self, df: pd.DataFrame) -> bool:
+    def write(self, df: pd.DataFrame, show_progress: bool = True) -> bool:
         """
         写入股票数据（统一接口，支持批量写入）
         
@@ -138,7 +138,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             
             # 使用批量UPSERT写入（内部会显示进度条）
             with self._get_session() as session:
-                inserted_count = self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write)
+                inserted_count = self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write, show_progress=show_progress)
             
             logger.info(f"✓ 日线数据写入成功，共写入 {inserted_count} 条记录")
             return True

@@ -92,7 +92,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             result[column.name] = value
         return result
     
-    def write(self, df: pd.DataFrame):
+    def write(self, df: pd.DataFrame, show_progress: bool = True):
         """
         写入复权因子数据
         
@@ -103,6 +103,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
         
         Args:
             df: 复权因子数据 DataFrame，必须包含 ts_code, ex_date, adj_factor 列
+            show_progress: 是否显示进度条（默认True）
         """
         if df is None or df.empty:
             logger.warning("DataFrame is empty, nothing to write")
@@ -125,7 +126,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             
             # 使用批量UPSERT写入（内部会显示进度条）
             with self._get_session() as session:
-                inserted_count = self._bulk_upsert_dataframe(session, AdjFactorORM, df_to_write)
+                inserted_count = self._bulk_upsert_dataframe(session, AdjFactorORM, df_to_write, show_progress=show_progress)
             
             logger.info(f"✓ 复权因子数据写入成功，共写入 {inserted_count} 条记录")
         except Exception as e:
