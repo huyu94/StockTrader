@@ -7,6 +7,7 @@ import pandas as pd
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 from loguru import logger
+from tqdm import tqdm
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -127,55 +128,66 @@ class MySQLBaseStorage:
         # 处理 preserve_null_columns
         preserve_null_set = set(preserve_null_columns) if preserve_null_columns else set()
         
-        # 分批处理
+        # 计算总批次数
+        total_chunks = (total_rows + chunk_size - 1) // chunk_size
+        
+        # 分批处理，使用 tqdm 显示进度
         inserted_count = 0
-        for i in range(0, total_rows, chunk_size):
-            chunk = records[i:i + chunk_size]
-            
-            # 构建UPSERT语句（MySQL的INSERT ... ON DUPLICATE KEY UPDATE）
-            # 获取所有列名
-            columns = list(chunk[0].keys())
-            
-            # 构建INSERT部分
-            columns_str = ', '.join([f'`{col}`' for col in columns])
-            placeholders = ', '.join([f':{col}' for col in columns])
-            
-            # 构建UPDATE部分（更新所有非主键列）
-            update_columns = [col for col in columns if col not in primary_keys]
-            if update_columns:
-                # 对于需要保留NULL的列，使用COALESCE；否则直接使用VALUES
-                update_parts = []
-                for col in update_columns:
-                    if col in preserve_null_set:
-                        # 如果新值为NULL，保留现有值；否则使用新值
-                        update_parts.append(f'`{col}`=COALESCE(VALUES(`{col}`), `{col}`)')
-                    else:
-                        # 直接使用新值（即使为NULL也会覆盖）
-                        update_parts.append(f'`{col}`=VALUES(`{col}`)')
+        with tqdm(total=total_chunks, desc=f"写入 {table_name}", unit="批", leave=False) as pbar:
+            for i in range(0, total_rows, chunk_size):
+                chunk = records[i:i + chunk_size]
+                chunk_num = i // chunk_size + 1
                 
-                update_clause = ', '.join(update_parts)
+                # 更新进度条描述
+                pbar.set_description(f"写入 {table_name} ({chunk_num}/{total_chunks} 批, {len(chunk)} 条)")
                 
-                # 完整的UPSERT SQL
-                sql = f"""
-                    INSERT INTO `{table_name}` ({columns_str})
-                    VALUES ({placeholders})
-                    ON DUPLICATE KEY UPDATE {update_clause}
-                """
-            else:
-                # 如果没有非主键列需要更新，使用简单的INSERT IGNORE
-                sql = f"""
-                    INSERT IGNORE INTO `{table_name}` ({columns_str})
-                    VALUES ({placeholders})
-                """
-            
-            # 执行批量插入
-            # 构建参数绑定
-            stmt = text(sql)
-            # 为每条记录执行插入
-            for record in chunk:
-                params = {col: record.get(col) for col in columns}
-                session.execute(stmt, params)
-            inserted_count += len(chunk)
+                # 构建UPSERT语句（MySQL的INSERT ... ON DUPLICATE KEY UPDATE）
+                # 获取所有列名
+                columns = list(chunk[0].keys())
+                
+                # 构建INSERT部分
+                columns_str = ', '.join([f'`{col}`' for col in columns])
+                placeholders = ', '.join([f':{col}' for col in columns])
+                
+                # 构建UPDATE部分（更新所有非主键列）
+                update_columns = [col for col in columns if col not in primary_keys]
+                if update_columns:
+                    # 对于需要保留NULL的列，使用COALESCE；否则直接使用VALUES
+                    update_parts = []
+                    for col in update_columns:
+                        if col in preserve_null_set:
+                            # 如果新值为NULL，保留现有值；否则使用新值
+                            update_parts.append(f'`{col}`=COALESCE(VALUES(`{col}`), `{col}`)')
+                        else:
+                            # 直接使用新值（即使为NULL也会覆盖）
+                            update_parts.append(f'`{col}`=VALUES(`{col}`)')
+                    
+                    update_clause = ', '.join(update_parts)
+                    
+                    # 完整的UPSERT SQL
+                    sql = f"""
+                        INSERT INTO `{table_name}` ({columns_str})
+                        VALUES ({placeholders})
+                        ON DUPLICATE KEY UPDATE {update_clause}
+                    """
+                else:
+                    # 如果没有非主键列需要更新，使用简单的INSERT IGNORE
+                    sql = f"""
+                        INSERT IGNORE INTO `{table_name}` ({columns_str})
+                        VALUES ({placeholders})
+                    """
+                
+                # 执行批量插入
+                # 构建参数绑定
+                stmt = text(sql)
+                # 为每条记录执行插入
+                for record in chunk:
+                    params = {col: record.get(col) for col in columns}
+                    session.execute(stmt, params)
+                inserted_count += len(chunk)
+                
+                # 更新进度条
+                pbar.update(1)
         
         logger.debug(f"Bulk upserted {inserted_count} rows into {table_name}")
         return inserted_count

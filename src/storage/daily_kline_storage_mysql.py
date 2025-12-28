@@ -110,15 +110,18 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         - 数据验证应该在外层使用 Pydantic 模型完成
         - DataFrame 必须包含 ts_code 列
         - 支持单只股票或多只股票的数据写入
-        - 使用 UPSERT 自动去重
+        - 使用 UPSERT 自动去重（带进度条）
         
         :param df: 股票数据 DataFrame，必须包含 ts_code 和 trade_date 列
         :return: True 表示成功，False 表示失败
         """
         if df.empty:
+            logger.info("DataFrame 为空，无需写入")
             return True
         
         try:
+            logger.info(f"开始写入日线数据，共 {len(df)} 条记录...")
+            
             # 确保日期格式正确（YYYY-MM-DD用于MySQL存储）
             df_copy = df.copy()
 
@@ -133,11 +136,11 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             
             df_to_write = df_copy[available_columns].copy()
             
-            # 使用批量UPSERT写入
+            # 使用批量UPSERT写入（内部会显示进度条）
             with self._get_session() as session:
-                self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write)
+                inserted_count = self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write)
             
-            logger.debug(f"✓ Write succeeded ({len(df_to_write)} rows)")
+            logger.info(f"✓ 日线数据写入成功，共写入 {inserted_count} 条记录")
             return True
             
         except Exception as e:

@@ -99,7 +99,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
         流程：
         1. 确保表结构包含所有需要的列
         2. 处理日期格式
-        3. 使用批量UPSERT写入
+        3. 使用批量UPSERT写入（带进度条）
         
         Args:
             df: 复权因子数据 DataFrame，必须包含 ts_code, ex_date, adj_factor 列
@@ -109,6 +109,8 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             return
         
         try:
+            logger.info(f"开始写入复权因子数据，共 {len(df)} 条记录...")
+            
             df_copy = df.copy()
             
             # 获取表中实际存在的列（通过ORM模型）
@@ -121,11 +123,11 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             
             df_to_write = df_copy[available_columns].copy()
             
-            # 使用批量UPSERT写入
+            # 使用批量UPSERT写入（内部会显示进度条）
             with self._get_session() as session:
-                self._bulk_upsert_dataframe(session, AdjFactorORM, df_to_write)
+                inserted_count = self._bulk_upsert_dataframe(session, AdjFactorORM, df_to_write)
             
-            logger.info(f"Adj factor saved: {len(df_to_write)} records")
+            logger.info(f"✓ 复权因子数据写入成功，共写入 {inserted_count} 条记录")
         except Exception as e:
             logger.error(f"Failed to write adj factor: {e}")
             raise
