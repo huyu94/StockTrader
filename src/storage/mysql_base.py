@@ -92,7 +92,8 @@ class MySQLBaseStorage:
         session: Session,
         model_class,
         df: pd.DataFrame,
-        chunk_size: int = 1000
+        chunk_size: int = 1000,
+        preserve_null_columns: list = None
     ) -> int:
         """
         批量写入DataFrame到数据库（支持UPSERT）
@@ -102,6 +103,7 @@ class MySQLBaseStorage:
             model_class: ORM模型类
             df: 要写入的DataFrame
             chunk_size: 每批写入的行数
+            preserve_null_columns: 如果新值为NULL则保留现有值的列名列表（使用COALESCE）
             
         Returns:
             写入的行数
@@ -122,6 +124,9 @@ class MySQLBaseStorage:
         records = df_clean.to_dict('records')
         total_rows = len(records)
         
+        # 处理 preserve_null_columns
+        preserve_null_set = set(preserve_null_columns) if preserve_null_columns else set()
+        
         # 分批处理
         inserted_count = 0
         for i in range(0, total_rows, chunk_size):
@@ -138,7 +143,17 @@ class MySQLBaseStorage:
             # 构建UPDATE部分（更新所有非主键列）
             update_columns = [col for col in columns if col not in primary_keys]
             if update_columns:
-                update_clause = ', '.join([f'`{col}`=VALUES(`{col}`)' for col in update_columns])
+                # 对于需要保留NULL的列，使用COALESCE；否则直接使用VALUES
+                update_parts = []
+                for col in update_columns:
+                    if col in preserve_null_set:
+                        # 如果新值为NULL，保留现有值；否则使用新值
+                        update_parts.append(f'`{col}`=COALESCE(VALUES(`{col}`), `{col}`)')
+                    else:
+                        # 直接使用新值（即使为NULL也会覆盖）
+                        update_parts.append(f'`{col}`=VALUES(`{col}`)')
+                
+                update_clause = ', '.join(update_parts)
                 
                 # 完整的UPSERT SQL
                 sql = f"""

@@ -4,19 +4,20 @@ SQLAlchemy ORM 模型定义
 定义所有数据库表的ORM模型，用于MySQL存储。
 """
 from datetime import date
-from sqlalchemy import Column, String, Date, Integer, Float, Index, PrimaryKeyConstraint, DECIMAL, BigInteger
+from re import T
+from sqlalchemy import Boolean, Column, String, Date, Integer, Float, Index, PrimaryKeyConstraint, DECIMAL, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.mysql import VARCHAR, DATE, INTEGER
 
 Base = declarative_base()
 
 
-class DailyKline(Base):
+class DailyKlineORM(Base):
     """日线行情数据表ORM模型（存储未复权原始股价和前复权价格）"""
     __tablename__ = 'daily_kline'
     
     ts_code = Column(VARCHAR(12), nullable=False, primary_key=True, comment='股票代码')
-    date = Column(DATE, nullable=False, primary_key=True, comment='交易日期')
+    trade_date = Column(DATE, nullable=False, primary_key=True, comment='交易日期')
     open = Column(DECIMAL(10, 2), nullable=True, comment='未复权开盘价（元，精确到分）')
     high = Column(DECIMAL(10, 2), nullable=True, comment='未复权最高价（元，精确到分）')
     low = Column(DECIMAL(10, 2), nullable=True, comment='未复权最低价（元，精确到分）')
@@ -40,7 +41,7 @@ class DailyKline(Base):
     )
 
 
-class BasicInfo(Base):
+class BasicInfoORM(Base):
     """股票基本信息表ORM模型"""
     __tablename__ = 'basic_info'
     
@@ -63,23 +64,27 @@ class BasicInfo(Base):
     )
 
 
-class TradeCalendar(Base):
+class TradeCalendarORM(Base):
     """交易日历表ORM模型"""
     __tablename__ = 'trade_calendar'
     
-    exchange = Column(VARCHAR(10), nullable=False, primary_key=True, comment='交易所代码')
-    date = Column(DATE, nullable=False, primary_key=True, comment='日历日期')
-    is_open = Column(INTEGER, nullable=False, comment='是否交易（0=休市 1=交易）')
+    cal_date = Column(DATE, nullable=False, primary_key=True, comment='日历日期')
+    sse_open = Column(Boolean, nullable=True, comment='SSE是否交易（0=休市 1=交易）')
+    szse_open = Column(Boolean, nullable=True, comment='SZSE是否交易（0=休市 1=交易）')
+    cffex_open = Column(Boolean, nullable=True, comment='CFFEX是否交易（0=休市 1=交易）')
+    shfe_open = Column(Boolean, nullable=True, comment='SHFE是否交易（0=休市 1=交易）')
+    czce_open = Column(Boolean, nullable=True, comment='CZCE是否交易（0=休市 1=交易）')
+    dce_open = Column(Boolean, nullable=True, comment='DCE是否交易（0=休市 1=交易）')
+    ine_open = Column(Boolean, nullable=True, comment='INE是否交易（0=休市 1=交易）')
     
     __table_args__ = (
-        PrimaryKeyConstraint('exchange', 'cal_date'),
-        Index('idx_calendar_exchange', 'exchange'),
+        PrimaryKeyConstraint('cal_date'),
         Index('idx_calendar_date', 'cal_date'),
         {'comment': '交易日历表'}
     )
 
 
-class AdjFactor(Base):
+class AdjFactorORM(Base):
     """复权因子表ORM模型（仅存储除权日的复权因子）"""
     __tablename__ = 'adj_factor'
     
@@ -90,9 +95,9 @@ class AdjFactor(Base):
     update_time = Column(DATE, nullable=True, comment='数据入库时间')
     
     __table_args__ = (
-        PrimaryKeyConstraint('ts_code', 'adj_date'),
+        PrimaryKeyConstraint('ts_code', 'date'),
         Index('idx_adj_factor_ts_code', 'ts_code'),
-        Index('idx_adj_factor_date', 'adj_date'),
+        Index('idx_adj_factor_date', 'date'),
         {'comment': '复权因子表（仅存储除权日的复权因子）'}
     )
 

@@ -40,19 +40,18 @@ from src.fetch.fetchers.daily_kline_fetcher import DailyKlineFetcher
 from src.fetch.fetchers.basic_info_fetcher import BasicInfoFetcher
 from src.fetch.fetchers.calendar_fetcher import CalendarFetcher
 # utils
-from src.utils.date_helper import DateHelper
+from utils.date_helper import DateHelper
 
 # Model
 from src.fetch.models.stock_models import (
-    DailyKlineData,
-    BasicInfoData,
-    TradeCalendarData,
-    validate_daily_kline_dataframe,
-    validate_basic_info_dataframe
+    DailyKline,
+    StockBasicInfo,
+    TradeCalendar,
+    AdjFactor,
 )
 
 
-class Manager:
+class FetchManager:
     """
     统一数据管理器
     
@@ -232,7 +231,7 @@ class Manager:
         if self.basic_storage.check_update_needed():
             logger.info("Updating basic info...")
             df = self.basic_fetcher.fetch()
-            validated_df, failed_records = validate_basic_info_dataframe(df)
+            validated_df, failed_records = StockBasicInfo.validate_dataframe(df)
             if validated_df is not None and not validated_df.empty:
                 self.basic_storage.write(validated_df)
             if failed_records:
@@ -315,11 +314,13 @@ class Manager:
         
         流程：
         1. 调用 fetcher.fetch_one() 使用 pro_bar 获取该股票的数据
-        2. 使用 DailyKlineData.validate_dataframe() 验证数据格式
+        2. 使用 DailyKline.validate_dataframe() 验证数据格式
         3. 返回验证后的 DataFrame
         """
         df = self.daily_fetcher.fetch_one(ts_code=ts_code, start_date=start_date, end_date=end_date)
-        validated_df = DailyKlineData.validate_dataframe(df)
+        validated_df, failed_records = DailyKline.validate_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
         logger.debug(f"Validated {len(validated_df)} rows of kline data for stock {ts_code}")
         return validated_df
 
@@ -329,11 +330,13 @@ class Manager:
         
         流程：
         1. 调用 fetcher.fetch_daily_by_date() 使用 pro.daily 获取该交易日的所有股票数据
-        2. 使用 DailyKlineData.validate_dataframe() 验证数据格式
+        2. 使用 DailyKline.validate_dataframe() 验证数据格式
         3. 返回验证后的 DataFrame
         """
         df = self.daily_fetcher.fetch_daily_by_date(trade_date=trade_date)
-        validated_df = DailyKlineData.validate_dataframe(df)
+        validated_df, failed_records = DailyKline.validate_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
         logger.debug(f"Validated {len(validated_df)} rows of kline data for trade date {trade_date}")    
         return validated_df
 
@@ -507,7 +510,9 @@ class Manager:
         
         """
         df = self.daily_storage.load(ts_code, start_date, end_date)
-        validated_df = DailyKlineData.validate_dataframe(df)
+        validated_df, failed_records = DailyKline.validate_dataframe(df)
+        if failed_records:
+            logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
         logger.debug(f"Validated {len(validated_df)} rows of kline data for stock {ts_code}")
         return validated_df
 
@@ -520,7 +525,7 @@ class Manager:
                         list_status: str = None,
                         ) -> pd.DataFrame:
         df = self.basic_storage.load(market=market, is_hs=is_hs, exchange=exchange, industry=industry, area=area, list_status=list_status)
-        validated_df, failed_records = validate_basic_info_dataframe(df)
+        validated_df, failed_records = StockBasicInfo.validate_dataframe(df)
         if failed_records:
             logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
         logger.debug(f"Validated {len(validated_df)} rows of basic info")

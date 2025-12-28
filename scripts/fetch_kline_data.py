@@ -12,8 +12,8 @@ dotenv.load_dotenv()
 from config import setup_logger
 setup_logger()
 
-from src.manager import Manager
-from src.models import DateHelper
+from src.fetch.fetch_manager import FetchManager
+from utils.date_helper import DateHelper
 
 def main():
     """
@@ -79,5 +79,18 @@ def main():
         logger.error(f"❌ Job failed with error: {e}")
         raise
 
+
+def fetch_kline_data():
+    """
+    获取日线数据
+    """
+    data_manager = FetchManager()
+    start_date = "20251222"
+    end_date = "20251227"
+    df = data_manager.update_daily_kline(start_date=start_date, end_date=end_date)
+    print(df)
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    fetch_kline_data()

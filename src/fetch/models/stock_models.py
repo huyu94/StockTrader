@@ -34,29 +34,35 @@ class DailyKline(BaseModel):
     )
     
     ts_code: str = Field(..., description="股票代码", min_length=6, max_length=12)
-    date: date = Field(..., description="交易日期（MySQL DATE类型：YYYY-MM-DD）")
-    open: Optional[float] = Field(None, description="未复权开盘价", ge=0)
-    high: Optional[float] = Field(None, description="未复权最高价", ge=0)
-    low: Optional[float] = Field(None, description="未复权最低价", ge=0)
-    close: Optional[float] = Field(None, description="未复权收盘价", ge=0)
-    change: Optional[float] = Field(None, description="涨跌额")
-    vol: Optional[float] = Field(None, description="成交量（手）", ge=0)
-    amount: Optional[float] = Field(None, description="成交额（千元）", ge=0)
+    trade_date: date = Field(..., description="交易日期（MySQL DATE类型：YYYY-MM-DD）")
+    open: Optional[float] = Field(..., description="未复权开盘价", ge=0)
+    high: Optional[float] = Field(..., description="未复权最高价", ge=0)
+    low: Optional[float] = Field(..., description="未复权最低价", ge=0)
+    close: Optional[float] = Field(..., description="未复权收盘价", ge=0)
+    change: Optional[float] = Field(..., description="涨跌额")
+    vol: Optional[float] = Field(..., description="成交量（手）", ge=0)
+    amount: Optional[float] = Field(..., description="成交额（千元）", ge=0)
     close_qfq: Optional[float] = Field(None, description="前复权收盘价", ge=0)
     open_qfq: Optional[float] = Field(None, description="前复权开盘价", ge=0)
     high_qfq: Optional[float] = Field(None, description="前复权最高价", ge=0)
     low_qfq: Optional[float] = Field(None, description="前复权最低价", ge=0)
     
+    @field_validator('trade_date', mode='before')
+    def parse_date(cls, v):
+        return DateHelper.normalize_to_yyyy_mm_dd(v)
+
+
+
     def to_dict(self) -> dict:
         """转换为字典，日期格式化为MySQL DATE格式（YYYY-MM-DD）"""
         data = self.model_dump()
-        data['date'] = self.date.strftime('%Y-%m-%d')
+        data['trade_date'] = self.trade_date.strftime('%Y-%m-%d')
         return data
     
     def to_dict_yyyymmdd(self) -> dict:
         """转换为字典，日期格式化为 YYYYMMDD"""
         data = self.model_dump()
-        data['date'] = self.date.strftime('%Y%m%d')
+        data['trade_date'] = self.trade_date.strftime('%Y%m%d')
         return data
     
     @staticmethod
@@ -92,7 +98,7 @@ class DailyKline(BaseModel):
         return validated_df, failed_records
 
 
-class BasicInfoData(BaseModel):
+class StockBasicInfo(BaseModel):
     """
     股票基本信息数据模型
     
@@ -153,7 +159,7 @@ class BasicInfoData(BaseModel):
         # 批量验证（使用列表推导式 + 异常处理）
         for idx, record in enumerate(records):
             try:
-                validated = BasicInfoData(**record)
+                validated = StockBasicInfo(**record)
                 validated_records.append(validated.to_dict())
             except Exception as e:
                 failed_records.append({
@@ -165,67 +171,7 @@ class BasicInfoData(BaseModel):
         validated_df = pd.DataFrame(validated_records) if validated_records else pd.DataFrame()
         return validated_df, failed_records
 
-
-class TradeCalendarData(BaseModel):
-    """
-    交易日历数据模型
-    
-    字段说明：
-    - exchange: 交易所代码（SSE=上交所 SZSE=深交所）
-    - cal_date: 日历日期
-    - is_open: 是否交易（0=休市 1=交易）
-    """
-    model_config = ConfigDict(
-        str_strip_whitespace=True,
-        validate_assignment=True,
-    )
-    
-    exchange: str = Field(..., description="交易所代码", max_length=10)
-    cal_date: date = Field(..., description="日历日期（MySQL DATE类型：YYYY-MM-DD）")
-    is_open: int = Field(..., description="是否交易", ge=0, le=1)
-    
-
-    
-    def to_dict(self) -> dict:
-        """转换为字典，日期格式化为MySQL DATE格式（YYYY-MM-DD）"""
-        data = self.model_dump()
-        data['cal_date'] = self.cal_date.strftime('%Y-%m-%d')
-        return data
-    
-    @staticmethod
-    def validate_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[dict]]:
-        """
-        验证交易日历 DataFrame（批量验证优化版本）
-        
-        :param df: 原始 DataFrame
-        :return: (验证通过的 DataFrame, 验证失败的记录列表)
-        """
-        if df is None or df.empty:
-            return pd.DataFrame(), []
-        
-        validated_records = []
-        failed_records = []
-        
-        # 将 DataFrame 转换为字典列表（一次性转换，比逐行转换快）
-        records = df.to_dict('records')
-        
-        # 批量验证（使用列表推导式 + 异常处理）
-        for idx, record in enumerate(records):
-            try:
-                validated = TradeCalendarData(**record)
-                validated_records.append(validated.to_dict())
-            except Exception as e:
-                failed_records.append({
-                    'index': df.index[idx] if idx < len(df.index) else idx,
-                    'data': record,
-                    'error': str(e)
-                })
-        
-        validated_df = pd.DataFrame(validated_records) if validated_records else pd.DataFrame()
-        return validated_df, failed_records
-
-
-class AdjFactorData(BaseModel):
+class AdjFactor(BaseModel):
     """
     复权因子数据模型（仅存储除权日的复权因子）
     
@@ -300,7 +246,7 @@ class AdjFactorData(BaseModel):
         # 批量验证（使用列表推导式 + 异常处理）
         for idx, record in enumerate(records):
             try:
-                validated = AdjFactorData(**record)
+                validated = AdjFactor(**record)
                 validated_records.append(validated.to_dict())
             except Exception as e:
                 failed_records.append({

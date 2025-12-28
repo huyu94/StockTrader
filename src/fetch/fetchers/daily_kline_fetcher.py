@@ -2,7 +2,7 @@ import os
 from typing import Optional
 import pandas as pd
 from loguru import logger
-from src.providers import BaseProvider, TushareProvider
+from src.fetch.providers import BaseProvider, TushareProvider
 from utils.date_helper import DateHelper
 import dotenv
 
@@ -27,10 +27,8 @@ class DailyKlineFetcher:
             ts_code=ts_code, 
             start_date=start_date, 
             end_date=end_date, 
-            adj="qfq", 
-            freq="D",
-            factors=["tor", "vr"],  # 获取前复权因子
-            adjfactor=True
+            adj="None", 
+            freq="D"            
         )
         
         if df is None or df.empty:

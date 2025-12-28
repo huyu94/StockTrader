@@ -2,7 +2,7 @@ import os
 from typing import Optional
 import pandas as pd
 from loguru import logger
-from src.providers import BaseProvider, TushareProvider
+from src.fetch.providers import BaseProvider, TushareProvider
 import dotenv
 dotenv.load_dotenv()
 

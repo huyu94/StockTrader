@@ -2,6 +2,7 @@ import os
 import time
 import threading
 from typing import Optional, Any
+from numpy import kaiser
 import tushare as ts
 import pandas as pd
 from loguru import logger
@@ -56,7 +57,6 @@ class TushareProvider(BaseProvider):
         """
         max_retries = 3
         retry_delay = 2  # 秒
-        
         with self._api_lock:
             for attempt in range(max_retries):
                 start_time = time.time()

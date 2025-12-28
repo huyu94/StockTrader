@@ -87,18 +87,6 @@ class DateHelper:
             raise ValueError(f"Unsupported date format: {date_str}. Expected YYYYMMDD or YYYY-MM-DD")
     
     @staticmethod
-    def to_display(date_str: str) -> str:
-        """
-        将 YYYYMMDD 格式转换为 YYYY-MM-DD（用于显示）
-        
-        :param date_str: YYYYMMDD 格式的日期字符串
-        :return: YYYY-MM-DD 格式的日期字符串
-        """
-        if len(date_str) == 8 and date_str.isdigit():
-            return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-        return date_str
-    
-    @staticmethod
     def today() -> str:
         """
         获取今天的日期（YYYY-MM-DD 格式）

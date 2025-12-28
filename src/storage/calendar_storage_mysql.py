@@ -5,8 +5,9 @@ import pandas as pd
 from typing import Optional
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
-from .orm_models import Base, TradeCalendar
-from src.utils.date_helper import DateHelper
+from .orm_models import Base, TradeCalendarORM
+from utils.date_helper import DateHelper
+from src.fetch.calendar.calendar_model import TradeCalendar
 import dotenv
 
 dotenv.load_dotenv()
@@ -33,18 +34,18 @@ class CalendarStorageMySQL(MySQLBaseStorage):
         try:
             with self._get_session() as session:
                 query = session.query(
-                    TradeCalendar.cal_date,
-                    TradeCalendar.is_open
+                    TradeCalendarORM.cal_date,
+                    TradeCalendarORM.is_open
                 ).filter(
-                    TradeCalendar.exchange == exchange
-                ).order_by(TradeCalendar.cal_date)
+                    TradeCalendarORM.exchange == exchange
+                ).order_by(TradeCalendarORM.trade_date)
                 
                 results = query.all()
                 
                 if not results:
                     return None
                 
-                # 转换为DataFrame
+                # 转换为DataFrame，将 trade_date 列重命名为 cal_date 以保持与外部接口一致
                 data = [{"cal_date": row.cal_date, "is_open": row.is_open} for row in results]
                 df = pd.DataFrame(data)
                 
@@ -58,8 +59,8 @@ class CalendarStorageMySQL(MySQLBaseStorage):
         try:
             with self._get_session() as session:
                 # 检查是否有数据
-                count = session.query(TradeCalendar).filter(
-                    TradeCalendar.exchange == exchange
+                count = session.query(TradeCalendarORM).filter(
+                    TradeCalendarORM.exchange == exchange
                 ).count()
                 
                 if count == 0:
@@ -67,9 +68,9 @@ class CalendarStorageMySQL(MySQLBaseStorage):
                     return True
                 
                 # 检查最新日期
-                max_date_obj = session.query(TradeCalendar.cal_date).filter(
-                    TradeCalendar.exchange == exchange
-                ).order_by(TradeCalendar.cal_date.desc()).first()
+                max_date_obj = session.query(TradeCalendarORM.trade_date).filter(
+                    TradeCalendarORM.exchange == exchange
+                ).order_by(TradeCalendarORM.trade_date.desc()).first()
                 
                 if not max_date_obj or not max_date_obj[0]:
                     return True
@@ -86,56 +87,51 @@ class CalendarStorageMySQL(MySQLBaseStorage):
                 
                 return False
         except Exception as e:
-            logger.warning(f"Error checking update for {exchange}: {e}")
+            
             return True
-    
-    def write(self, df: pd.DataFrame, exchange: str):
-        """写入数据"""
+
+
+    def write_df(self, df: pd.DataFrame):
+        """写入数据（SQL层面智能合并：不会覆盖已有交易所的数据）"""
         if df is None or df.empty:
             return
         
         try:
-            # 确保有exchange列
             df_copy = df.copy()
-            if "exchange" not in df_copy.columns:
-                df_copy["exchange"] = exchange
+
+            validated_df, failed_records = TradeCalendar.validate_dataframe(df_copy)
             
-            # 统一 cal_date 格式为 DATE 类型（YYYY-MM-DD用于MySQL存储）
-            if "cal_date" in df_copy.columns:
-                if pd.api.types.is_datetime64_any_dtype(df_copy["cal_date"]):
-                    # 如果是datetime类型，使用DateHelper处理
-                    df_copy["cal_date"] = df_copy["cal_date"].apply(
-                        lambda d: DateHelper.to_display(DateHelper.parse_to_str(d)) if pd.notna(d) else None
-                    )
-                else:
-                    # 使用DateHelper统一处理日期格式
-                    def normalize_cal_date(d):
-                        try:
-                            if pd.isna(d):
-                                return None
-                            # 使用DateHelper统一处理，然后转换为YYYY-MM-DD
-                            normalized = DateHelper.parse_to_str(str(d))
-                            return DateHelper.to_display(normalized)
-                        except:
-                            return None
-                    df_copy["cal_date"] = df_copy["cal_date"].astype(str)
-                    df_copy["cal_date"] = df_copy["cal_date"].apply(normalize_cal_date)
+            if failed_records:
+                logger.warning(f"验证过程中存在{len(failed_records)}条数据验证失败")
+                for failed_record in failed_records[:5]:  # 只显示前5条错误
+                    logger.warning(f"失败数据: {failed_record['data']}, 错误: {failed_record['error']}")
             
-            # 确保is_open是整数
-            if "is_open" in df_copy.columns:
-                df_copy["is_open"] = df_copy["is_open"].astype(int)
+            if validated_df.empty:
+                logger.warning("验证后没有有效数据")
+                return
             
-            # 选择需要的列
-            model_columns = {col.name for col in TradeCalendar.__table__.columns}
-            available_columns = [col for col in df_copy.columns if col in model_columns]
-            df_to_write = df_copy[available_columns].copy()
+            # 选择需要的列（匹配ORM模型）
+            model_columns = {col.name for col in TradeCalendarORM.__table__.columns}
+            available_columns = [col for col in validated_df.columns if col in model_columns]
+            df_to_write = validated_df[available_columns].copy()
             
-            # 使用批量UPSERT写入
+            
+            # 获取所有需要保留NULL的列（所有 _open 列）
+            preserve_null_columns = [col for col in df_to_write.columns if col.endswith('_open')]
+        
+            logger.debug(f"Writing calendar data with columns: {list(df_to_write.columns)}, shape: {df_to_write.shape}")
+
+            # 使用批量UPSERT写入，传入 _open 列以保留现有值
             with self._get_session() as session:
-                self._bulk_upsert_dataframe(session, TradeCalendar, df_to_write)
+                self._bulk_upsert_dataframe(
+                    session, 
+                    TradeCalendarORM, 
+                    df_to_write,
+                    preserve_null_columns=preserve_null_columns
+                )
             
-            logger.info(f"Trade calendar saved for {exchange}: {len(df_to_write)} records")
+            logger.info(f"Trade calendar saved: {len(validated_df)} records")
         except Exception as e:
-            logger.error(f"Failed to write calendar for {exchange}: {e}")
+            logger.error(f"Failed to write calendar: {e}")
             raise
 
