@@ -12,8 +12,8 @@ dotenv.load_dotenv()
 class CalendarFetcher:
     """交易日历获取器"""
     def __init__(self,
-        provider: Optional[BaseProvider] = None,
-        storage: Optional[CalendarStorageMySQL] = None,
+        provider: BaseProvider,
+        storage: CalendarStorageMySQL,
     ):
         self.provider = provider
         self.storage = storage

@@ -40,24 +40,24 @@ class BasicInfoStorageMySQL(MySQLBaseStorage):
         """读取股票基本信息数据"""
         try:
             with self._get_session() as session:
-                query = session.query(BasicInfo)
+                query = session.query(BasicInfoORM)
                 
                 # 构建过滤条件
                 if market is not None:
-                    query = query.filter(BasicInfo.market == market)
+                    query = query.filter(BasicInfoORM.market == market)
                 if is_hs is not None:
-                    query = query.filter(BasicInfo.is_hs == is_hs)
+                    query = query.filter(BasicInfoORM.is_hs == is_hs)
                 if exchange is not None:
-                    query = query.filter(BasicInfo.exchange == exchange)
+                    query = query.filter(BasicInfoORM.exchange == exchange)
                 if industry is not None:
-                    query = query.filter(BasicInfo.industry == industry)
+                    query = query.filter(BasicInfoORM.industry == industry)
                 if area is not None:
-                    query = query.filter(BasicInfo.area == area)
+                    query = query.filter(BasicInfoORM.area == area)
                 if list_status is not None:
-                    query = query.filter(BasicInfo.list_status == list_status)
+                    query = query.filter(BasicInfoORM.list_status == list_status)
                 
                 # 排序
-                query = query.order_by(BasicInfo.ts_code)
+                query = query.order_by(BasicInfoORM.ts_code)
                 
                 # 执行查询并转换为DataFrame
                 results = query.all()
@@ -89,15 +89,15 @@ class BasicInfoStorageMySQL(MySQLBaseStorage):
         try:
             with self._get_session() as session:
                 # 检查是否有数据
-                count = session.query(BasicInfo).count()
+                count = session.query(BasicInfoORM).count()
                 
                 if count == 0:
                     logger.debug("Update needed for basic info: no data in database")
                     return True
                 
                 # 检查最新更新时间
-                max_date_obj = session.query(BasicInfo.updated_at).order_by(
-                    BasicInfo.updated_at.desc()
+                max_date_obj = session.query(BasicInfoORM.updated_at).order_by(
+                    BasicInfoORM.updated_at.desc()
                 ).first()
                 
                 if not max_date_obj or not max_date_obj[0]:
@@ -142,7 +142,7 @@ class BasicInfoStorageMySQL(MySQLBaseStorage):
                 return
             
             # 获取表中实际存在的列（通过ORM模型）
-            model_columns = {col.name for col in BasicInfo.__table__.columns}
+            model_columns = {col.name for col in BasicInfoORM.__table__.columns}
             available_columns = [col for col in df_copy.columns if col in model_columns]
             
             if not available_columns:
@@ -153,7 +153,7 @@ class BasicInfoStorageMySQL(MySQLBaseStorage):
             
             # 使用批量UPSERT写入
             with self._get_session() as session:
-                self._bulk_upsert_dataframe(session, BasicInfo, df_to_write)
+                self._bulk_upsert_dataframe(session, BasicInfoORM, df_to_write)
             
             logger.info(f"Basic info saved: {len(df_to_write)} records")
         except Exception as e:

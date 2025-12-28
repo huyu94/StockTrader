@@ -89,15 +89,13 @@ class AdjFactorORM(Base):
     __tablename__ = 'adj_factor'
     
     ts_code = Column(VARCHAR(12), nullable=False, primary_key=True, comment='股票代码')
-    date = Column(DATE, nullable=False, primary_key=True, comment='复权因子生效日期（除权除息日）')
+    trade_date = Column(DATE, nullable=False, primary_key=True, comment='复权因子生效日期（除权除息日）')
     adj_factor = Column(DECIMAL(10, 4), nullable=False, comment='后复权因子（保留4位小数保证计算精度）')
-    adj_event = Column(VARCHAR(50), nullable=True, comment='除权事件说明（如"10送5派1元"）')
-    update_time = Column(DATE, nullable=True, comment='数据入库时间')
-    
+
     __table_args__ = (
-        PrimaryKeyConstraint('ts_code', 'date'),
+        PrimaryKeyConstraint('ts_code', 'trade_date'),
         Index('idx_adj_factor_ts_code', 'ts_code'),
-        Index('idx_adj_factor_date', 'date'),
-        {'comment': '复权因子表（仅存储除权日的复权因子）'}
+        Index('idx_adj_factor_date', 'trade_date'),
+        {'comment': '复权因子表（仅存储除权除息日的复权因子）'}
     )
 
