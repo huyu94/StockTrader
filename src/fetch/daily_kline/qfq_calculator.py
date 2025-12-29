@@ -70,8 +70,6 @@ class QFQCalculator:
             adj_factor_df = adj_factor_df.copy()  # 避免修改原DataFrame
             adj_factor_df['trade_date'] = pd.to_datetime(adj_factor_df['trade_date'], errors='coerce')
 
-        logger.info(f"kline_df : {result_df}")
-        logger.info(f"adj_factor_df: {adj_factor_df}")
 
         # 按日期排序
         result_df = result_df.sort_values('trade_date').reset_index(drop=True)
@@ -114,7 +112,6 @@ class QFQCalculator:
         result_df['high_qfq'] = result_df['high'] * result_df['ratio']
         result_df['low_qfq'] = result_df['low'] * result_df['ratio']
 
-        logger.info(result_df)
 
         return result_df
 
