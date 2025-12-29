@@ -37,69 +37,9 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             logger.error(f"Failed to initialize daily kline table: {e}")
             raise
     
-    def load(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """读取单只股票的日线数据
-        
-        Args:
-            ts_code: 股票代码
-            start_date: 开始日期，支持 YYYYMMDD 或 YYYY-MM-DD 格式
-            end_date: 结束日期，支持 YYYYMMDD 或 YYYY-MM-DD 格式
-            
-        Returns:
-            包含日线数据的 DataFrame，如果无数据或出错则返回空 DataFrame
-        """
-        try:
-            # 参数验证
-            if not ts_code:
-                logger.warning("ts_code is empty")
-                return pd.DataFrame()
-            
-            # 统一日期格式为 YYYY-MM-DD（MySQL DATE类型）
-            try:
-                start_date_normalized = DateHelper.normalize_str_to_str(start_date)
-                end_date_normalized = DateHelper.normalize_str_to_str(end_date)
-                # 转换为 YYYY-MM-DD 格式用于MySQL查询
-                start_date_normalized = DateHelper.to_display(start_date_normalized)
-                end_date_normalized = DateHelper.to_display(end_date_normalized)
-            except Exception as e:
-                logger.error(f"Invalid date format for {ts_code}: start={start_date}, end={end_date}, error={e}")
-                return pd.DataFrame()
-            
-            with self._get_session() as session:
-                query = session.query(DailyKlineORM).filter(
-                    DailyKlineORM.ts_code == ts_code,
-                    DailyKlineORM.trade_date >= start_date_normalized,
-                    DailyKlineORM.trade_date <= end_date_normalized
-                ).order_by(DailyKlineORM.trade_date)
-                
-                results = query.all()
-                
-                if not results:
-                    return pd.DataFrame()
-                
-                # 转换为DataFrame
-                data = [self._model_to_dict(row) for row in results]
-                df = pd.DataFrame(data)
-                
-                # 转换trade_date为datetime
-                if "trade_date" in df.columns:
-                    df["trade_date"] = pd.to_datetime(df["trade_date"], errors='coerce')
-                
-                return df
-        except Exception as e:
-            logger.error(f"Failed to load daily kline for {ts_code}: {e}")
-            return pd.DataFrame()
     
-    def _model_to_dict(self, model_instance) -> dict:
-        """将ORM模型实例转换为字典"""
-        result = {}
-        for column in model_instance.__table__.columns:
-            value = getattr(model_instance, column.name)
-            # 处理日期类型：使用DateHelper统一转换为YYYYMMDD格式
-            if value is not None and hasattr(value, 'strftime'):
-                value = DateHelper.parse_to_str(value)
-            result[column.name] = value
-        return result
+    
+
     
     def write(self, df: pd.DataFrame, show_progress: bool = True) -> bool:
         """
@@ -147,19 +87,74 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             logger.error(f"❌ Failed to write data: {e}")
             return False
 
-    def load(self, ts_codes: Union[List[str], str]) -> pd.DataFrame:
-        """读取多只股票的数据"""
+    def load(
+    self, 
+    start_date: Optional[str],
+    end_date: Optional[str],
+    ts_codes: Union[str, List[str]] = None 
+    ) -> pd.DataFrame:
+        """
+        读取日线数据
+        
+        支持两种使用方式：
+        1. 单只股票 + 日期范围：load("000001.SZ", "2024-01-01", "2024-12-31")
+        2. 多只股票（可选日期范围）：load(["000001.SZ", "000002.SZ"], "2024-01-01", "2024-12-31")
+        3. 多只股票（无日期范围）：load(["000001.SZ", "000002.SZ"])
+        
+        Args:
+            ts_codes: 股票代码，可以是单个字符串或字符串列表
+            start_date: 开始日期（可选），支持 YYYYMMDD 或 YYYY-MM-DD 格式
+            end_date: 结束日期（可选），支持 YYYYMMDD 或 YYYY-MM-DD 格式
+            
+        Returns:
+            包含日线数据的 DataFrame，如果无数据或出错则返回空 DataFrame
+        """
         try:
-            if isinstance(ts_codes, str):
-                ts_codes = [ts_codes]
-                
+            # 参数验证
             if not ts_codes:
+                logger.warning("ts_codes is empty")
                 return pd.DataFrame()
+            
+            # 统一转换为列表格式
+            if isinstance(ts_codes, str):
+                ts_codes_list = [ts_codes]
+            else:
+                ts_codes_list = ts_codes
+            
+            if not ts_codes_list:
+                return pd.DataFrame()
+            
+            # 处理日期范围（如果提供）
+            start_date_normalized = None
+            end_date_normalized = None
+            
+            if start_date and end_date:
+                try:
+                    start_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(start_date)
+                    end_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(end_date)
+                except Exception as e:
+                    logger.error(f"Invalid date format: start={start_date}, end={end_date}, error={e}")
+                    return pd.DataFrame()
             
             with self._get_session() as session:
                 query = session.query(DailyKlineORM).filter(
-                    DailyKlineORM.ts_code.in_(ts_codes)
-                ).order_by(DailyKlineORM.ts_code, DailyKlineORM.trade_date)
+                    DailyKlineORM.ts_code.in_(ts_codes_list)
+                )
+                
+                # 如果提供了日期范围，添加日期过滤条件
+                if start_date_normalized and end_date_normalized:
+                    query = query.filter(
+                        DailyKlineORM.trade_date >= start_date_normalized,
+                        DailyKlineORM.trade_date <= end_date_normalized
+                    )
+                
+                # 排序
+                if len(ts_codes_list) == 1:
+                    # 单只股票按日期排序
+                    query = query.order_by(DailyKlineORM.trade_date)
+                else:
+                    # 多只股票按股票代码和日期排序
+                    query = query.order_by(DailyKlineORM.ts_code, DailyKlineORM.trade_date)
                 
                 results = query.all()
                 
@@ -167,7 +162,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
                     return pd.DataFrame()
                 
                 # 转换为DataFrame
-                data = [self._model_to_dict(row) for row in results]
+                data = [DailyKlineORM._model_to_dict(row) for row in results]
                 df = pd.DataFrame(data)
                 
                 # 转换trade_date为datetime
@@ -176,7 +171,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
                 
                 return df
         except Exception as e:
-            logger.error(f"Failed to load multiple stocks: {e}")
+            logger.error(f"Failed to load daily kline: {e}")
             return pd.DataFrame()
     
     def get_stock_count(self) -> int:
@@ -199,4 +194,17 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         except Exception as e:
             logger.error(f"Failed to get total rows: {e}")
             return 0
+
+
+    def get_all_ts_codes(self) -> List[str]:
+        """获取数据库中所有股票代码"""
+        try:
+            with self._get_session() as session:
+                query = session.query(DailyKlineORM.ts_code).distinct()
+                results = query.all()
+                ts_codes = [row[0] for row in results]
+                return ts_codes
+        except Exception as e:
+            logger.error(f"Failed to get all ts codes: {e}")
+            return []
 

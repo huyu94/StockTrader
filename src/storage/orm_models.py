@@ -9,6 +9,8 @@ from sqlalchemy import Boolean, Column, String, Date, Integer, Float, Index, Pri
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.mysql import VARCHAR, DATE, INTEGER
 
+from utils.date_helper import DateHelper
+
 Base = declarative_base()
 
 
@@ -39,7 +41,20 @@ class DailyKlineORM(Base):
         Index('idx_trade_date', 'trade_date'),
         {'comment': '日线行情数据表（未复权原始数据 + 前复权价格）'}
     )
-
+    
+    @staticmethod
+    def _model_to_dict(model_instance) -> dict:
+        """将ORM模型实例转换为字典"""
+        result = {}
+        for column in model_instance.__table__.columns:
+            value = getattr(model_instance, column.name)
+            # 处理日期类型：使用DateHelper统一转换为YYYYMMDD格式
+            if value is not None and hasattr(value, 'strftime'):
+                value = DateHelper.parse_to_str(value)
+            elif isinstance(value, DECIMAL):
+                value = float(value)
+            result[column.name] = value
+        return result
 
 class BasicInfoORM(Base):
     """股票基本信息表ORM模型"""

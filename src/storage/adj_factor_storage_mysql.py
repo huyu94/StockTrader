@@ -2,7 +2,7 @@
 复权因子存储管理器（MySQL版本）
 """
 import pandas as pd
-from typing import Optional
+from typing import List, Optional
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
 from .orm_models import Base, AdjFactorORM
@@ -132,3 +132,15 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
         except Exception as e:
             logger.error(f"Failed to write adj factor: {e}")
             raise
+
+    
+    def get_ex_stock_codes(self, start_date: str, end_date: str) -> List[str]:
+        """
+        获取除权除息股票代码
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+        """
+        df = self.load(start_date=start_date, end_date=end_date)
+        return df['ts_code'].unique().tolist()

@@ -6,9 +6,10 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Optional, List
+from typing import Optional, List, Union
 from loguru import logger
 from decimal import Decimal
+from tqdm import tqdm
 
 from src.storage.daily_kline_storage_mysql import DailyKlineStorageMySQL
 from src.storage.adj_factor_storage_mysql import AdjFactorStorageMySQL
@@ -40,180 +41,84 @@ class QFQCalculator:
         self.daily_storage = daily_storage
         self.adj_storage = adj_storage
     
-    def calculate_qfq(
-        self,
-        ts_code: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        incremental: bool = False
-    ):
+
+    def calculate_qfq_prices(self , kline_df: pd.DataFrame, adj_factor_df: pd.DataFrame) -> pd.DataFrame:
         """
-        计算前复权价格并更新到数据库
+        计算前复权价
+        
+        前复权计算公式：前复权价(T) = 未复权价(T) × 最新复权因子 / 历史复权因子(T)
         
         Args:
-            ts_code: 股票代码，如果为None则计算全市场所有股票
-            start_date: 开始日期（YYYY-MM-DD 或 YYYYMMDD），如果为None则从最早数据开始
-            end_date: 结束日期（YYYY-MM-DD 或 YYYYMMDD），如果为None则到最新数据
-            incremental: 是否增量更新模式
-                - False: 全量模式，重新计算所有数据并覆盖
-                - True: 增量模式，只计算和更新缺失的前复权数据
-        """
-        if ts_code:
-            # 单只股票计算
-            logger.info(f"开始计算股票 {ts_code} 的前复权数据（{'增量' if incremental else '全量'}模式）")
-            self._calculate_single_stock(ts_code, start_date, end_date, incremental)
-        else:
-            # 全市场批量计算
-            logger.info(f"开始计算全市场股票的前复权数据（{'增量' if incremental else '全量'}模式）")
-            self._calculate_all_stocks(start_date, end_date, incremental)
-    
-    def _calculate_all_stocks(
-        self,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        incremental: bool = False
-    ):
-        """
-        计算全市场所有股票的前复权数据
-        
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            incremental: 是否增量更新模式
-        """
-        # 获取所有股票代码
-        ts_codes = self._get_all_stock_codes()
-        if not ts_codes:
-            logger.warning("未找到任何股票代码，无法进行计算")
-            return
-        
-        logger.info(f"找到 {len(ts_codes)} 只股票，开始批量计算前复权数据")
-        
-        # 按股票分组处理
-        success_count = 0
-        error_count = 0
-        
-        for idx, ts_code in enumerate(ts_codes, 1):
-            try:
-                logger.debug(f"处理股票 {ts_code} ({idx}/{len(ts_codes)})")
-                self._calculate_single_stock(ts_code, start_date, end_date, incremental)
-                success_count += 1
-            except Exception as e:
-                error_count += 1
-                logger.error(f"计算股票 {ts_code} 的前复权数据失败: {e}")
-        
-        logger.info(f"全市场前复权计算完成：成功 {success_count} 只，失败 {error_count} 只")
-    
-    def _get_all_stock_codes(self) -> List[str]:
-        """
-        获取数据库中所有股票代码
+            kline_df: 日线数据DataFrame，每个交易日一行，包含 trade_date, open, high, low, close 等列
+            adj_factor_df: 复权因子DataFrame，只有复权因子变化的那天有数据，包含 trade_date, adj_factor 列
         
         Returns:
-            股票代码列表
+            更新后的DataFrame，包含 adj_factor 列和前复权价格列（close_qfq, open_qfq, high_qfq, low_qfq）
         """
-        try:
-            with self.daily_storage._get_session() as session:
-                # 查询所有不重复的股票代码
-                query = session.query(DailyKlineORM.ts_code).distinct()
-                results = query.all()
-                ts_codes = [row[0] for row in results]
-                return ts_codes
-        except Exception as e:
-            logger.error(f"获取股票代码列表失败: {e}")
-            return []
-    
-    def _calculate_single_stock(
-        self,
-        ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        incremental: bool = False
-    ):
-        """
-        计算单只股票的前复权数据
+        # 复制数据，避免修改原DataFrame
+        result_df = kline_df.copy()
+
+        # 检查 adj_factor_df 是否为 None 或空
+        if adj_factor_df is None or adj_factor_df.empty:
+            logger.warning("复权因子数据为空，无法计算前复权价格")
+            return result_df
+        # 确保trade_date是日期类型（统一转换为datetime）
+        if not pd.api.types.is_datetime64_any_dtype(result_df['trade_date']):
+            result_df['trade_date'] = pd.to_datetime(result_df['trade_date'], errors='coerce')
+
+        if not pd.api.types.is_datetime64_any_dtype(adj_factor_df['trade_date']):
+            adj_factor_df = adj_factor_df.copy()  # 避免修改原DataFrame
+            adj_factor_df['trade_date'] = pd.to_datetime(adj_factor_df['trade_date'], errors='coerce')
+
+        logger.info(f"kline_df : {result_df}")
+        logger.info(f"adj_factor_df: {adj_factor_df}")
+
+        # 按日期排序
+        result_df = result_df.sort_values('trade_date').reset_index(drop=True)
+        adj_factor_df = adj_factor_df.sort_values('trade_date').reset_index(drop=True)
         
-        Args:
-            ts_code: 股票代码
-            start_date: 开始日期
-            end_date: 结束日期
-            incremental: 是否增量更新模式
-        """
-        # 1. 读取日线数据
-        df_kline = self._load_daily_kline(ts_code, start_date, end_date, incremental)
-        if df_kline.empty:
-            logger.debug(f"股票 {ts_code} 没有日线数据，跳过")
-            return
-        
-        # 2. 读取复权因子数据
-        adj_factors_df = self._load_adj_factors(ts_code, start_date, end_date)
-        if adj_factors_df is None or adj_factors_df.empty:
-            raise ValueError(f"股票 {ts_code} 没有复权因子数据，无法计算前复权价格")
-        
-        # 3. 构建复权因子时间序列
-        adj_factor_series = self._build_adj_factor_series(adj_factors_df, df_kline['trade_date'])
-        
-        # 4. 计算前复权价格
-        df_result = self._calculate_qfq_prices(df_kline, adj_factor_series, adj_factors_df)
-        
-        # 5. 更新到数据库
-        if not df_result.empty:
-            self._update_database(df_result, incremental)
-            logger.info(f"✓ 股票 {ts_code} 前复权数据更新完成，共 {len(df_result)} 条记录")
-        else:
-            logger.debug(f"股票 {ts_code} 没有需要更新的数据")
-    
-    def _load_daily_kline(
-        self,
-        ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        incremental: bool = False
-    ) -> pd.DataFrame:
-        """
-        加载日线数据
-        
-        Args:
-            ts_code: 股票代码
-            start_date: 开始日期
-            end_date: 结束日期
-            incremental: 是否增量模式（只加载缺失前复权数据的记录）
-        
-        Returns:
-            日线数据DataFrame
-        """
-        # 标准化日期格式
-        if start_date:
-            start_date = DateHelper.normalize_to_yyyy_mm_dd(start_date)
-        if end_date:
-            end_date = DateHelper.normalize_to_yyyy_mm_dd(end_date)
-        
-        # 加载数据
-        df = self.daily_storage.load(ts_code, start_date or "1900-01-01", end_date or "2099-12-31")
-        
-        if df.empty:
-            return df
-        
-        # 增量模式：只处理缺失前复权数据的记录
-        if incremental:
-            # 检查是否有缺失的前复权数据
-            missing_mask = (
-                df['close_qfq'].isna() |
-                df['open_qfq'].isna() |
-                df['high_qfq'].isna() |
-                df['low_qfq'].isna()
+        # 检查是否有复权因子数据
+        if adj_factor_df.empty:
+            logger.warning("复权因子数据为空，无法计算前复权价格")
+            return result_df
+
+        # 为每个交易日找到对应的复权因子（≤ 该日期的最近复权因子）
+        # 使用 merge_asof 进行向前填充
+        result_df = pd.merge_asof(
+            result_df,
+            adj_factor_df[['trade_date', 'adj_factor']],
+            on='trade_date',
+            direction='backward'  # 向后查找，找到 ≤ trade_date 的最近复权因子
+        ).copy()  # 确保是独立副本，避免视图问题
+
+
+
+        # 检查是否有交易日早于最早的复权因子日期
+        earliest_adj_date = adj_factor_df['trade_date'].min()
+        missing_dates = result_df[result_df['trade_date'] < earliest_adj_date]
+        if not missing_dates.empty:
+            logger.warning(
+                f"有 {len(missing_dates)} 个交易日早于最早的复权因子日期 {earliest_adj_date.strftime('%Y-%m-%d')}，"
+                f"这些交易日的前复权价格将无法计算"
             )
-            df = df[missing_mask].copy()
-            if not df.empty:
-                logger.debug(f"股票 {ts_code} 增量模式：找到 {len(df)} 条缺失前复权数据的记录")
-        
-        return df
-    
-    def _load_adj_factors(
-        self,
-        ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
-    ) -> Optional[pd.DataFrame]:
+
+        # 获取最新复权因子（所有复权因子中日期最大的）
+        latest_adj_factor = adj_factor_df.loc[adj_factor_df['trade_date'].idxmax(), 'adj_factor']
+        if pd.isna(latest_adj_factor) or latest_adj_factor <= 0:
+            raise ValueError(f"最新复权因子无效: {latest_adj_factor}")
+
+
+        result_df['ratio'] = result_df['adj_factor'].apply(lambda x: latest_adj_factor / x if x > 0 else np.nan)
+        result_df['close_qfq'] = result_df['close'] * result_df['ratio']
+        result_df['open_qfq'] = result_df['open'] * result_df['ratio']
+        result_df['high_qfq'] = result_df['high'] * result_df['ratio']
+        result_df['low_qfq'] = result_df['low'] * result_df['ratio']
+
+        logger.info(result_df)
+
+        return result_df
+
+    def _load_adj_factor(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         加载复权因子数据
         
@@ -221,204 +126,129 @@ class QFQCalculator:
             ts_code: 股票代码
             start_date: 开始日期
             end_date: 结束日期
-        
-        Returns:
-            复权因子DataFrame，如果无数据则返回None
         """
-        # 标准化日期格式
-        if start_date:
-            start_date = DateHelper.normalize_to_yyyy_mm_dd(start_date)
-        if end_date:
-            end_date = DateHelper.normalize_to_yyyy_mm_dd(end_date)
-        
-        # 加载复权因子数据（不限制日期范围，需要获取所有历史复权因子）
-        adj_factors_df = self.adj_storage.load(ts_code=ts_code)
-        
-        if adj_factors_df is None or adj_factors_df.empty:
-            return None
-        
-        # 确保trade_date是日期类型
-        if 'trade_date' in adj_factors_df.columns:
-            adj_factors_df['trade_date'] = pd.to_datetime(adj_factors_df['trade_date'], errors='coerce')
-        
-        # 按日期排序
-        adj_factors_df = adj_factors_df.sort_values('trade_date').reset_index(drop=True)
-        
-        return adj_factors_df
+        return self.adj_storage.load(ts_code=ts_code, start_date=start_date, end_date=end_date)
     
-    def _build_adj_factor_series(
-        self,
-        adj_factors_df: pd.DataFrame,
-        trade_dates: pd.Series
-    ) -> pd.Series:
+    def _load_daily_kline(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        构建复权因子时间序列
-        
-        对于每个交易日，找到 ≤ 该日期的最近复权因子。
-        如果没有复权因子，raise错误。
+        加载日线数据
         
         Args:
-            adj_factors_df: 复权因子DataFrame，包含trade_date和adj_factor列
-            trade_dates: 交易日序列（可能是Series或列）
-        
-        Returns:
-            每个交易日对应的复权因子Series（索引为trade_date）
-        
-        Raises:
-            ValueError: 如果股票没有复权因子数据
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
         """
-        if adj_factors_df.empty:
-            raise ValueError("复权因子数据为空，无法构建时间序列")
-        
-        # 确保trade_date是日期类型
-        if not pd.api.types.is_datetime64_any_dtype(adj_factors_df['trade_date']):
-            adj_factors_df['trade_date'] = pd.to_datetime(adj_factors_df['trade_date'], errors='coerce')
-        
-        # 处理trade_dates（可能是Series或列）
-        if isinstance(trade_dates, pd.Series):
-            trade_dates_list = trade_dates.tolist()
-        else:
-            trade_dates_list = trade_dates.tolist() if hasattr(trade_dates, 'tolist') else list(trade_dates)
-        
-        # 转换为datetime
-        trade_dates_list = [pd.to_datetime(d, errors='coerce') for d in trade_dates_list]
-        
-        # 创建复权因子字典（日期 -> 因子）
-        adj_factor_dict = dict(zip(adj_factors_df['trade_date'], adj_factors_df['adj_factor']))
-        
-        # 获取所有复权因子日期（排序）
-        adj_dates = sorted(adj_factors_df['trade_date'].dropna().tolist())
-        
-        if not adj_dates:
-            raise ValueError("复权因子数据中没有有效的日期")
-        
-        # 为每个交易日找到对应的复权因子
-        result_dict = {}
-        
-        for trade_date in trade_dates_list:
-            if pd.isna(trade_date):
-                continue
-            
-            # 找到 ≤ trade_date 的最近复权因子日期
-            valid_adj_dates = [d for d in adj_dates if d <= trade_date]
-            
-            if not valid_adj_dates:
-                # 如果该交易日之前没有任何复权因子，raise错误
-                raise ValueError(
-                    f"交易日 {trade_date.strftime('%Y-%m-%d')} 之前没有复权因子数据，"
-                    f"无法计算前复权价格。最早的复权因子日期为 {adj_dates[0].strftime('%Y-%m-%d')}"
-                )
-            
-            # 使用最近的复权因子
-            latest_adj_date = max(valid_adj_dates)
-            result_dict[trade_date] = adj_factor_dict[latest_adj_date]
-        
-        # 创建Series
-        result_series = pd.Series(result_dict)
-        
-        return result_series
+        return self.daily_storage.load(start_date=start_date, end_date=end_date, ts_codes=ts_code)
     
-    def _calculate_qfq_prices(
-        self,
-        df_kline: pd.DataFrame,
-        adj_factor_series: pd.Series,
-        adj_factors_df: pd.DataFrame = None
-    ) -> pd.DataFrame:
+    def update_single_qfq(self, ts_code: str, start_date: str, end_date: str):
         """
-        计算前复权价格
-        
-        公式：前复权价(T) = 未复权价(T) × 最新复权因子 / 历史复权因子(T)
+        更新单只股票的前复权数据
         
         Args:
-            df_kline: 日线数据DataFrame
-            adj_factor_series: 每个交易日对应的历史复权因子Series
-            adj_factors_df: 复权因子DataFrame（用于获取最新复权因子）
-        
-        Returns:
-            包含前复权价格的计算结果DataFrame
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
         """
-        df_result = df_kline.copy()
-        
-        # 确保trade_date是日期类型
-        if not pd.api.types.is_datetime64_any_dtype(df_result['trade_date']):
-            df_result['trade_date'] = pd.to_datetime(df_result['trade_date'], errors='coerce')
-        
-        # 获取最新复权因子（所有复权因子中日期最大的那个）
-        if adj_factors_df is not None and not adj_factors_df.empty:
-            # 从原始复权因子数据中获取最新日期对应的因子
-            latest_adj_factor = adj_factors_df.loc[adj_factors_df['trade_date'].idxmax(), 'adj_factor']
-        else:
-            # 如果没有提供原始数据，从Series中获取（Series的索引是日期，值是因子）
-            # 找到日期最大的索引对应的值
-            if len(adj_factor_series) > 0:
-                latest_date = adj_factor_series.index.max()
-                latest_adj_factor = adj_factor_series[latest_date]
-            else:
-                raise ValueError("无法获取最新复权因子")
-        
-        if pd.isna(latest_adj_factor) or latest_adj_factor <= 0:
-            raise ValueError(f"最新复权因子无效: {latest_adj_factor}")
-        
-        # 为每个交易日计算前复权价格
-        for idx, row in df_result.iterrows():
-            trade_date = row['trade_date']
-            
-            # 从Series中获取历史复权因子（使用日期匹配）
-            if trade_date in adj_factor_series.index:
-                hist_adj_factor = adj_factor_series[trade_date]
-            else:
-                # 尝试使用最接近的日期
-                if len(adj_factor_series) > 0:
-                    # 找到最接近的日期
-                    closest_date = min(adj_factor_series.index, key=lambda x: abs((x - trade_date).days))
-                    hist_adj_factor = adj_factor_series[closest_date]
-                else:
-                    logger.warning(f"交易日 {trade_date} 无法找到对应的复权因子，跳过该记录")
-                    continue
-            
-            if pd.isna(hist_adj_factor) or hist_adj_factor <= 0:
-                logger.warning(f"交易日 {trade_date} 的历史复权因子无效: {hist_adj_factor}，跳过该记录")
-                continue
-            
-            # 计算前复权价格
-            ratio = latest_adj_factor / hist_adj_factor
-            
-            # 计算各个价格字段的前复权价格
-            if pd.notna(row['close']) and row['close'] > 0:
-                df_result.at[idx, 'close_qfq'] = round(float(row['close']) * ratio, 2)
-            
-            if pd.notna(row['open']) and row['open'] > 0:
-                df_result.at[idx, 'open_qfq'] = round(float(row['open']) * ratio, 2)
-            
-            if pd.notna(row['high']) and row['high'] > 0:
-                df_result.at[idx, 'high_qfq'] = round(float(row['high']) * ratio, 2)
-            
-            if pd.notna(row['low']) and row['low'] > 0:
-                df_result.at[idx, 'low_qfq'] = round(float(row['low']) * ratio, 2)
-        
-        # 只返回需要更新的列（主键 + 前复权字段）
-        update_columns = ['ts_code', 'trade_date', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
-        df_result = df_result[update_columns].copy()
-        
-        # 确保日期格式正确（转换为字符串 YYYY-MM-DD）
-        df_result['trade_date'] = df_result['trade_date'].apply(
-            lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
-        )
-        
-        return df_result
+        kline_df = self._load_daily_kline(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        adj_factor_df = self._load_adj_factor(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        result_df = self.calculate_qfq_prices(kline_df=kline_df, adj_factor_df=adj_factor_df)
+        logger.info(f"更新股票 {ts_code} 的前复权数据完成，共 {len(result_df)} 条记录")
+        self.write_to_database(result_df)
     
-    def _update_database(self, df: pd.DataFrame, incremental: bool = False):
+    def update_all_qfq(self, start_date: str, end_date: str, ts_codes: Union[List[str], str] = None):
         """
-        更新数据库
+        更新全市场股票的前复权数据
         
         Args:
-            df: 包含前复权价格的数据DataFrame
-            incremental: 是否增量模式
+            ts_codes: 股票代码列表
+            start_date: 开始日期
+            end_date: 结束日期
         """
-        if df.empty:
+        if ts_codes is None:
+            ts_codes = self.get_ex_stock_codes(start_date=start_date, end_date=end_date)
+        elif isinstance(ts_codes, str):
+            ts_codes = [ts_codes]
+        elif isinstance(ts_codes, list):
+            pass
+        
+
+        for ts_code in tqdm(ts_codes, desc="更新前复权数据", total=len(ts_codes)):
+            self.update_single_qfq(ts_code=ts_code, start_date=start_date, end_date=end_date)
+
+
+    def get_ex_stock_codes(self, start_date: str, end_date: str) -> List[str]:
+        """
+        获取数据库里日期范围内除权除息的股票代码
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+        """
+        return self.adj_storage.get_ex_stock_codes(start_date=start_date, end_date=end_date)
+
+
+    def write_to_database(self, result_df: pd.DataFrame):
+        """
+        将前复权数据写入数据库
+        
+        Args:
+            result_df: 前复权数据DataFrame
+        """
+        if result_df.empty:
+            logger.warning("result_df 为空，没有数据可写入")
             return
         
-        # 使用存储管理器的write方法批量更新
-        # write方法内部使用UPSERT，会自动处理重复数据
-        self.daily_storage.write(df, show_progress=True)
+        # 调试信息：检查输入数据
+        logger.info(f"result_df 形状: {result_df.shape}")
+        logger.info(f"result_df 列: {result_df.columns.tolist()}")
+        
+        # 检查前复权价格列
+        qfq_columns = ['close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
+        for col in qfq_columns:
+            if col in result_df.columns:
+                non_null_count = result_df[col].notna().sum()
+                logger.info(f"{col} 非空数量: {non_null_count}/{len(result_df)}")
+        
+        # 只选择需要更新的列（主键 + 前复权价格列），避免覆盖原始价格数据
+        update_columns = ['ts_code', 'trade_date', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
+        # 只保留存在的列
+        available_columns = [col for col in update_columns if col in result_df.columns]
+        
+        logger.debug(f"可用的更新列: {available_columns}")
+        
+        if not available_columns:
+            logger.warning("没有可用的更新列，无法写入数据库")
+            return
+        
+        df_to_write = result_df[available_columns].copy()
+        
+        # 检查是否有前复权价格数据
+        has_qfq_data = any(col in df_to_write.columns and df_to_write[col].notna().any() 
+                           for col in qfq_columns)
+        
+        if not has_qfq_data:
+            logger.warning("前复权价格列全部为空，没有数据可写入")
+            logger.debug(f"前5行数据:\n{df_to_write.head()}")
+            return
 
+        # 确保日期格式正确（转换为字符串 YYYY-MM-DD）
+        if 'trade_date' in df_to_write.columns:
+            df_to_write['trade_date'] = df_to_write['trade_date'].apply(
+                lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
+            )
+        
+        logger.info(f"准备写入 {len(df_to_write)} 条记录到数据库")
+        logger.debug(f"写入数据的列: {df_to_write.columns.tolist()}")
+        logger.debug(f"前5行数据:\n{df_to_write.head()}")
+        
+        try:
+            if not df_to_write.empty:
+                success = self.daily_storage.write(df_to_write, show_progress=False)
+                if success:
+                    logger.info(f"✓ 前复权数据写入数据库成功，共 {len(df_to_write)} 条记录")
+                else:
+                    logger.error("✗ 前复权数据写入数据库失败")
+            else:
+                logger.warning("df_to_write 为空，没有数据可写入")
+        except Exception as e:
+            logger.error(f"写入数据库时发生异常: {e}", exc_info=True)
