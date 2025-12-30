@@ -15,7 +15,8 @@ from src.storage.daily_kline_storage_mysql import DailyKlineStorageMySQL
 from src.storage.adj_factor_storage_mysql import AdjFactorStorageMySQL
 from src.storage.orm_models import DailyKlineORM
 from utils.date_helper import DateHelper
-
+from config import setup_logger
+setup_logger()
 
 class QFQCalculator:
     """前复权计算器
@@ -196,22 +197,17 @@ class QFQCalculator:
             return
         
         # 调试信息：检查输入数据
-        logger.info(f"result_df 形状: {result_df.shape}")
-        logger.info(f"result_df 列: {result_df.columns.tolist()}")
+        # logger.info(f"result_df 形状: {result_df.shape}")
+        # logger.info(f"result_df 列: {result_df.columns.tolist()}")
         
         # 检查前复权价格列
         qfq_columns = ['close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
-        for col in qfq_columns:
-            if col in result_df.columns:
-                non_null_count = result_df[col].notna().sum()
-                logger.info(f"{col} 非空数量: {non_null_count}/{len(result_df)}")
         
         # 只选择需要更新的列（主键 + 前复权价格列），避免覆盖原始价格数据
         update_columns = ['ts_code', 'trade_date', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         # 只保留存在的列
         available_columns = [col for col in update_columns if col in result_df.columns]
         
-        logger.debug(f"可用的更新列: {available_columns}")
         
         if not available_columns:
             logger.warning("没有可用的更新列，无法写入数据库")
@@ -234,9 +230,8 @@ class QFQCalculator:
                 lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
             )
         
-        logger.info(f"准备写入 {len(df_to_write)} 条记录到数据库")
+        logger.debug(f"准备写入 {len(df_to_write)} 条记录到数据库")
         logger.debug(f"写入数据的列: {df_to_write.columns.tolist()}")
-        logger.debug(f"前5行数据:\n{df_to_write.head()}")
         
         try:
             if not df_to_write.empty:

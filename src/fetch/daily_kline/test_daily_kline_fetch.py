@@ -25,7 +25,7 @@ def update_qfq():
         adj_storage=AdjFactorStorageMySQL()
     )
     # print(qfq_calculator.get_ex_stock_codes(start_date="2025-12-01", end_date="2025-12-25"))
-    qfq_calculator.update_all_qfq(start_date="2025-12-01", end_date="2025-12-25", ts_codes='920978.BJ')
+    qfq_calculator.update_all_qfq(start_date="2025-01-01", end_date="2025-12-25")
 
 if __name__ == "__main__":
     # test_adj_factor_fetch()

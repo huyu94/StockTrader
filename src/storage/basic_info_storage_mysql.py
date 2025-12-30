@@ -2,7 +2,7 @@
 股票基本信息存储管理器（MySQL版本）
 """
 import pandas as pd
-from typing import Optional
+from typing import List, Optional
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
 from .orm_models import Base, BasicInfoORM
@@ -160,3 +160,14 @@ class BasicInfoStorageMySQL(MySQLBaseStorage):
             logger.error(f"Failed to write basic info: {e}")
             raise
 
+    def get_all_ts_codes(self) -> List[str]:
+        """获取数据库中所有股票代码"""
+        try:
+            with self._get_session() as session:
+                query = session.query(BasicInfoORM.ts_code).distinct()
+                results = query.all()
+                ts_codes = [row[0] for row in results]
+                return ts_codes
+        except Exception as e:
+            logger.error(f"Failed to get all ts codes: {e}")
+            return []

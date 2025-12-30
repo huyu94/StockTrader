@@ -110,7 +110,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             return
         
         try:
-            logger.info(f"开始写入复权因子数据，共 {len(df)} 条记录...")
+            # logger.debug(f"开始写入复权因子数据，共 {len(df)} 条记录...")
             
             df_copy = df.copy()
             
@@ -128,7 +128,7 @@ class AdjFactorStorageMySQL(MySQLBaseStorage):
             with self._get_session() as session:
                 inserted_count = self._bulk_upsert_dataframe(session, AdjFactorORM, df_to_write, show_progress=show_progress)
             
-            logger.info(f"✓ 复权因子数据写入成功，共写入 {inserted_count} 条记录")
+            logger.debug(f"✓ 复权因子数据写入成功，共写入 {inserted_count} 条记录")
         except Exception as e:
             logger.error(f"Failed to write adj factor: {e}")
             raise

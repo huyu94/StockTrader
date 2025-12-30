@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from src.fetch.providers import BaseProvider, TushareProvider
 from utils.date_helper import DateHelper
 from src.storage.adj_factor_storage_mysql import AdjFactorStorageMySQL
+from config import setup_logger
+setup_logger()
 
 
 class AdjFactorFetcher:
