@@ -10,6 +10,19 @@ from src.storage.daily_kline_storage_mysql import DailyKlineStorageMySQL
 from utils.date_helper import DateHelper
 
 class DailyKlineFetcher:
+    """
+    日线行情数据获取器
+    
+    功能：
+    1. 从数据源（如Tushare）获取日线行情数据
+    2. 支持按股票代码或按日期范围获取数据
+    3. 支持异步写入，提高数据获取效率
+    
+    更新模式：
+    - 采用增量更新模式：如果数据库中已存在相同主键（ts_code + trade_date）的记录，
+      则跳过该记录，不进行更新。只插入数据库中不存在的新记录。
+    - 这样可以避免重复爬取已存在的数据，提高更新效率。
+    """
     def __init__(
         self, 
         provider: BaseProvider,
@@ -21,6 +34,10 @@ class DailyKlineFetcher:
         # 创建写入线程池
         self.write_executor = ThreadPoolExecutor(max_workers=max_write_workers, thread_name_prefix="WriteWorker")
         self.pending_writes = []  # 存储待完成的写入任务
+
+        self._need_update_columns = ['ts_codes', 'trade_date', 'open', 'high', 'low', 'close', 'change', 'vol', 'amount']
+        self._optional_columns = ['close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
+        self._all_columns = self._need_update_columns + self._optional_columns
     
     def __del__(self):
         """清理资源"""
@@ -38,7 +55,8 @@ class DailyKlineFetcher:
         try:
             df_storage = self.to_storage_format(df)
             # 异步写入时禁用进度条，避免多个进度条同时显示
-            self.storage.write(df_storage, show_progress=False)
+            # 使用增量更新模式（跳过已存在的记录）
+            self.storage.write(df_storage, show_progress=False, incremental=True)
             logger.debug(f"异步写入完成: {description}, {len(df)} 条记录")
         except Exception as e:
             logger.error(f"异步写入失败: {description}, 错误: {e}")
@@ -224,7 +242,23 @@ class DailyKlineFetcher:
         """
         将数据转换为存储格式
         """
-        return df
+        if df.empty:
+            logger.warning("df 为空，没有数据可写入")
+            return pd.DataFrame()
+        
+        available_columns = [col for col in self._all_columns if col in df.columns]
+
+        if not available_columns:
+            logger.warning("没有可用的更新列，无法写入数据库")
+            return pd.DataFrame()
+        
+        df_to_write = df[available_columns].copy()
+        
+        if df_to_write.empty:
+            logger.warning("没有可用的更新数据，无法写入数据库")
+            return pd.DataFrame()
+        
+        return df_to_write
 
 
     def update(
@@ -257,9 +291,10 @@ class DailyKlineFetcher:
                 self._wait_all_writes()
             else:
                 # 同步写入模式：统一写入所有数据
+                # 使用增量更新模式（跳过已存在的记录）
                 if not df.empty:
                     df_storage = self.to_storage_format(df)
-                    self.storage.write(df_storage)
+                    self.storage.write(df_storage, incremental=True)
         finally:
             # 确保所有任务完成（即使出错也要等待）
             if self.pending_writes:

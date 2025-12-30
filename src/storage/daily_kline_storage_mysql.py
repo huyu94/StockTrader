@@ -41,7 +41,7 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
     
 
     
-    def write(self, df: pd.DataFrame, show_progress: bool = True) -> bool:
+    def write(self, df: pd.DataFrame, show_progress: bool = True, incremental: bool = True) -> bool:
         """
         写入股票数据（统一接口，支持批量写入）
         
@@ -50,9 +50,12 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
         - 数据验证应该在外层使用 Pydantic 模型完成
         - DataFrame 必须包含 ts_code 列
         - 支持单只股票或多只股票的数据写入
-        - 使用 UPSERT 自动去重（带进度条）
         
         :param df: 股票数据 DataFrame，必须包含 ts_code 和 trade_date 列
+        :param show_progress: 是否显示进度条
+        :param incremental: 是否增量更新（默认True）
+            - True: 增量更新，跳过已存在的主键记录（使用 INSERT IGNORE）
+            - False: 全量更新，覆盖已存在的主键记录（使用 UPSERT）
         :return: True 表示成功，False 表示失败
         """
         if df.empty:
@@ -60,7 +63,8 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             return True
         
         try:
-            logger.info(f"开始写入日线数据，共 {len(df)} 条记录...")
+            update_mode = "增量更新" if incremental else "全量更新"
+            logger.info(f"开始写入日线数据（{update_mode}），共 {len(df)} 条记录...")
             
             # 确保日期格式正确（YYYY-MM-DD用于MySQL存储）
             df_copy = df.copy()
@@ -76,11 +80,21 @@ class DailyKlineStorageMySQL(MySQLBaseStorage):
             
             df_to_write = df_copy[available_columns].copy()
             
-            # 使用批量UPSERT写入（内部会显示进度条）
+            # 根据增量模式选择写入方式
             with self._get_session() as session:
-                inserted_count = self._bulk_upsert_dataframe(session, DailyKlineORM, df_to_write, show_progress=show_progress)
+                if incremental:
+                    # 增量更新：使用 INSERT IGNORE，跳过已存在的记录
+                    inserted_count = self._bulk_insert_dataframe(
+                        session, DailyKlineORM, df_to_write, 
+                        ignore_duplicates=True, show_progress=show_progress
+                    )
+                else:
+                    # 全量更新：使用 UPSERT，覆盖已存在的记录
+                    inserted_count = self._bulk_upsert_dataframe(
+                        session, DailyKlineORM, df_to_write, show_progress=show_progress
+                    )
             
-            logger.info(f"✓ 日线数据写入成功，共写入 {inserted_count} 条记录")
+            logger.info(f"✓ 日线数据写入成功（{update_mode}），共写入 {inserted_count} 条记录")
             return True
             
         except Exception as e:
