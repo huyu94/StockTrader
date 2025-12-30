@@ -15,7 +15,7 @@ def main():
     storage = DailyKlineStorageMySQL()
     daily_kline_fetcher = DailyKlineFetcher(provider, storage, max_write_workers=15)
 
-    daily_kline_fetcher.update(start_date="2025-01-01", end_date="2025-12-25")
+    daily_kline_fetcher.update(start_date="2025-12-01", end_date='2025-12-30')
 
 
 def update_qfq():
@@ -25,7 +25,7 @@ def update_qfq():
         adj_storage=AdjFactorStorageMySQL()
     )
     # print(qfq_calculator.get_ex_stock_codes(start_date="2025-12-01", end_date="2025-12-25"))
-    qfq_calculator.update_all_qfq(start_date="2025-01-01", end_date="2025-12-25")
+    qfq_calculator.update_all_qfq(start_date="2025-01-01", end_date="2025-12-30")
 
 if __name__ == "__main__":
     # test_adj_factor_fetch()

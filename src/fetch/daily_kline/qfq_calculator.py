@@ -4,6 +4,7 @@
 用于读取数据库中的daily_kline数据和复权因子数据，计算前复权价格并更新到数据库。
 支持单只股票和全市场批量计算，支持全量和增量更新模式。
 """
+from zoneinfo import available_timezones
 import pandas as pd
 import numpy as np
 from typing import Optional, List, Union
@@ -185,6 +186,48 @@ class QFQCalculator:
         return self.adj_storage.get_ex_stock_codes(start_date=start_date, end_date=end_date)
 
 
+
+    def _to_storage_format(self, df:pd.DataFrame) -> pd.DataFrame:
+        """
+        将数据转换为存储格式
+        """
+        if df.empty:
+            logger.warning("result_df 为空，没有数据可写入")
+            return
+
+        qfq_columns = ['close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
+        update_columns = ['ts_code', 'trade_date', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
+        available_columns = [col for col in update_columns if col in df.columns]
+
+        if not available_columns:
+            logger.warning("没有可用的更新列，无法写入数据库")
+            return pd.DataFrame()
+        
+        df_to_write = df[available_columns].copy()
+        
+        # 过滤掉 available_columns 中任何值为 na 的行
+        initial_count = len(df_to_write)
+        df_to_write = df_to_write.dropna(subset=available_columns)
+        filtered_count = len(df_to_write)
+        if initial_count > filtered_count:
+            logger.debug(f"过滤掉 {initial_count - filtered_count} 条包含 na 值的记录，剩余 {filtered_count} 条")
+        
+        if df_to_write.empty:
+            logger.warning("没有可用的更新数据，无法写入数据库")
+            return pd.DataFrame()
+
+        # 确保日期格式正确（转换为字符串 YYYY-MM-DD）
+        if 'trade_date' in df_to_write.columns:
+            df_to_write['trade_date'] = df_to_write['trade_date'].apply(
+                lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
+            )
+
+        logger.debug(f"准备写入 {len(df_to_write)} 条记录到数据库")
+        logger.debug(f"写入数据的列: {df_to_write.columns.tolist()}")
+
+        return df_to_write
+
+
     def write_to_database(self, result_df: pd.DataFrame):
         """
         将前复权数据写入数据库
@@ -192,46 +235,7 @@ class QFQCalculator:
         Args:
             result_df: 前复权数据DataFrame
         """
-        if result_df.empty:
-            logger.warning("result_df 为空，没有数据可写入")
-            return
-        
-        # 调试信息：检查输入数据
-        # logger.info(f"result_df 形状: {result_df.shape}")
-        # logger.info(f"result_df 列: {result_df.columns.tolist()}")
-        
-        # 检查前复权价格列
-        qfq_columns = ['close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
-        
-        # 只选择需要更新的列（主键 + 前复权价格列），避免覆盖原始价格数据
-        update_columns = ['ts_code', 'trade_date', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
-        # 只保留存在的列
-        available_columns = [col for col in update_columns if col in result_df.columns]
-        
-        
-        if not available_columns:
-            logger.warning("没有可用的更新列，无法写入数据库")
-            return
-        
-        df_to_write = result_df[available_columns].copy()
-        
-        # 检查是否有前复权价格数据
-        has_qfq_data = any(col in df_to_write.columns and df_to_write[col].notna().any() 
-                           for col in qfq_columns)
-        
-        if not has_qfq_data:
-            logger.warning("前复权价格列全部为空，没有数据可写入")
-            logger.debug(f"前5行数据:\n{df_to_write.head()}")
-            return
-
-        # 确保日期格式正确（转换为字符串 YYYY-MM-DD）
-        if 'trade_date' in df_to_write.columns:
-            df_to_write['trade_date'] = df_to_write['trade_date'].apply(
-                lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
-            )
-        
-        logger.debug(f"准备写入 {len(df_to_write)} 条记录到数据库")
-        logger.debug(f"写入数据的列: {df_to_write.columns.tolist()}")
+        df_to_write = self._to_storage_format(result_df)
         
         try:
             if not df_to_write.empty:
