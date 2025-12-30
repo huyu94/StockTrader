@@ -18,7 +18,7 @@ def main():
     storage = AdjFactorStorageMySQL()
     adj_factor = AdjFactorFetcher(provider, storage)
 
-    adj_factor.update("2025-01-01", "2025-12-25")
+    adj_factor.update("2015-01-01", "2025-12-25")
 
 if __name__ == "__main__":
     # test_adj_factor_fetch()
