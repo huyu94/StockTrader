@@ -37,3 +37,7 @@ Thumbs.db
 # Build
 /dist/
 /build/
+
+
+# tar
+*.tar
