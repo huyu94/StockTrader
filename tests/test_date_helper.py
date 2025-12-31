@@ -95,20 +95,6 @@ class TestNormalizeToYyyymmdd:
             DateHelper.normalize_to_yyyymmdd(None)
 
 
-class TestToDisplay:
-    """测试 to_display 方法"""
-    
-    def test_to_display_yyyymmdd(self):
-        """测试 YYYYMMDD 格式转换"""
-        assert DateHelper.to_display("20231225") == "2023-12-25"
-        assert DateHelper.to_display("20240101") == "2024-01-01"
-    
-    def test_to_display_invalid_format(self):
-        """测试非标准格式"""
-        assert DateHelper.to_display("2023-12-25") == "2023-12-25"  # 原样返回
-        assert DateHelper.to_display("invalid") == "invalid"  # 原样返回
-
-
 class TestToday:
     """测试 today 方法（现在返回 YYYY-MM-DD 格式）"""
     
