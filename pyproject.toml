@@ -26,3 +26,12 @@ dependencies = [
     "pymysql>=1.1.0",
     "cryptography>=46.0.3",
 ]
+
+[tool.pytest.ini_options]
+# 注册自定义标记，避免 pytest 警告
+markers = [
+    "api: 标记需要调用外部 API 的测试（需要有效的 TUSHARE_TOKEN）",
+    "slow: 标记运行时间较长的测试（如获取所有股票数据）",
+]
+# 默认跳过慢速测试，可以通过 -m slow 来运行
+addopts = "-v --tb=short -m 'not slow'"

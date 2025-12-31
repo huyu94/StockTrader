@@ -1,0 +1,23 @@
+# 日K线 Pipeline 配置示例
+# 复制此文件为 daily_kline.yaml 并修改配置
+
+daily_kline:
+  collector:
+    source: tushare  # 数据源：tushare/akshare
+    token: ${TUSHARE_TOKEN}  # Tushare Token（从环境变量读取）
+    retry_times: 3  # 重试次数
+    timeout: 30  # 超时时间（秒）
+    
+  transformer:
+    transform_rules:
+      remove_halted: true  # 剔除停牌数据
+      handle_split: true  # 处理拆股
+      validate_ohlc: true  # 验证 OHLC 关系（high >= low, high >= open, high >= close, low <= open, low <= close）
+      fill_missing: false  # 是否填充缺失值
+      
+  loader:
+    table: daily_klines  # 数据库表名
+    load_strategy: upsert  # 加载策略：append/replace/upsert
+    upsert_keys: ['ts_code', 'trade_date']  # upsert 模式的主键字段
+    batch_size: 1000  # 批量插入大小
+
