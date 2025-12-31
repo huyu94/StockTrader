@@ -94,3 +94,30 @@ class BasicInfoCollector(BaseCollector):
         except Exception as e:
             raise CollectorException(f"采集股票基本信息失败: {e}") from e
 
+    def get_single_stock_basic_info(self, ts_code: str) -> pd.DataFrame:
+        """
+        获取指定股票的基本信息
+        """
+        return self.collect({"ts_code": ts_code, "fields": "ts_code,symbol,name,area,industry,market,list_date,list_status,is_hs,exchange"})
+    
+    def get_batch_stocks_basic_info(self, ts_codes: List[str]) -> pd.DataFrame:
+        """
+        获取指定股票列表的基本信息
+        """
+        all_results = []
+        for ts_code in ts_codes:
+            df = self.get_single_stock_basic_info(ts_code)
+            if not df.empty:
+                all_results.append(df)
+        
+        if all_results:
+            return pd.concat(all_results, ignore_index=True)
+        else:
+            return pd.DataFrame(columns=['ts_code', 'symbol', 'name', 'area', 'industry', 'market', 'list_date', 'list_status', 'is_hs', 'exchange'])
+
+    def get_all_ts_codes(self) -> List[str]:
+        """
+        获取所有股票代码
+        """
+        df = self.collect({})
+        return df['ts_code'].tolist()
