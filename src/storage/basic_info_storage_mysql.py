@@ -5,7 +5,7 @@ import pandas as pd
 from typing import List, Optional
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
-from .orm_models import Base, BasicInfoORM
+from core.models.orm import Base, BasicInfoORM
 from sqlalchemy.orm import Session
 from utils.date_helper import DateHelper
 import dotenv

@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from src.storage.daily_kline_storage_mysql import DailyKlineStorageMySQL
 from src.storage.adj_factor_storage_mysql import AdjFactorStorageMySQL
-from src.storage.orm_models import DailyKlineORM
+from core.models.orm import DailyKlineORM
 from utils.date_helper import DateHelper
 
 

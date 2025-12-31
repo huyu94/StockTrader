@@ -5,7 +5,7 @@ import pandas as pd
 from typing import Optional
 from loguru import logger
 from .mysql_base import MySQLBaseStorage
-from .orm_models import Base, TradeCalendarORM
+from core.models.orm import Base, TradeCalendarORM
 from utils.date_helper import DateHelper
 from src.fetch.calendar.calendar_model import TradeCalendar
 import dotenv
