@@ -1,4 +1,7 @@
+from core.pipelines.realtime_kline_pipeline import RealtimeKlinePipeline
 
 
-if __name__ == "__main__":
-    print("hello_world")
+pipeline = RealtimeKlinePipeline()
+
+
+pipeline.run(ts_codes=["000001.SZ", "600000.SH"])

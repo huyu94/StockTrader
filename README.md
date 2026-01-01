@@ -36,12 +36,14 @@
 - ✅ `BasicInfoCollector` - 股票基本信息采集
 - ✅ `TradeCalendarCollector` - 交易日历采集
 - ✅ `ExDateCollector` - 除权除息日采集（内部组件）
+- ✅ `IntradayKlineCollector` - 分时K线数据采集（使用 akshare 实时行情接口）
 
 **特性**：
 - 支持多数据源切换（Tushare、Akshare等）
 - 内置重试机制
 - 参数验证
 - 统一的数据返回格式（DataFrame）
+- Collector 只负责获取原始数据，不做数据转换
 
 #### Transformers（数据转换层）
 
@@ -52,6 +54,7 @@
 - ✅ `AdjFactorTransformer` - 复权因子处理
 - ✅ `BasicInfoTransformer` - 基本信息处理
 - ✅ `TradeCalendarTransformer` - 交易日历处理
+- ✅ `IntradayKlineTransformer` - 分时K线数据转换（支持 akshare 数据格式标准化）
 
 **主要功能**：
 - 字段重命名和映射
@@ -69,6 +72,7 @@
 - ✅ `AdjFactorLoader` - 复权因子入库逻辑
 - ✅ `BasicInfoLoader` - 基本信息入库逻辑
 - ✅ `TradeCalendarLoader` - 交易日历入库逻辑
+- ✅ `IntradayKlineLoader` - 分时K线数据入库逻辑
 
 **加载策略**：
 - `append`：追加数据（使用 INSERT IGNORE）
@@ -88,12 +92,14 @@
 - ✅ `AdjFactor` - 复权因子数据模型
 - ✅ `StockBasicInfo` - 股票基本信息模型
 - ✅ `TradeCalendar` - 交易日历模型
+- ✅ `IntradayKline` - 分时K线数据模型
 
 **ORM 模型**：
 - ✅ `DailyKlineORM` - 日K线 ORM 模型
 - ✅ `AdjFactorORM` - 复权因子 ORM 模型
 - ✅ `BasicInfoORM` - 基本信息 ORM 模型
 - ✅ `TradeCalendarORM` - 交易日历 ORM 模型
+- ✅ `IntradayKlineORM` - 分时K线 ORM 模型
 
 所有 ORM 模型统一在 `core/models/orm.py` 中定义。
 
@@ -130,21 +136,28 @@ core/
 │   ├── adj_factor.py
 │   ├── ex_date.py
 │   ├── basic_info.py
-│   └── trade_calendar.py
+│   ├── trade_calendar.py
+│   └── intraday_kline.py   # 分时K线数据采集
 │
 ├── transformers/            # 数据转换层 ✅
 │   ├── base.py
 │   ├── daily_kline.py
 │   ├── adj_factor.py
 │   ├── basic_info.py
-│   └── trade_calendar.py
+│   ├── trade_calendar.py
+│   └── intraday_kline.py   # 分时K线数据转换
 │
 ├── loaders/                 # 数据加载层 ✅
 │   ├── base.py
 │   ├── daily_kline.py
 │   ├── adj_factor.py
 │   ├── basic_info.py
-│   └── trade_calendar.py
+│   ├── trade_calendar.py
+│   └── intraday_kline.py   # 分时K线数据加载
+│
+├── calculators/             # 计算器模块 ✅
+│   ├── qfq_calculator.py   # 前复权计算器
+│   └── aggregator.py       # 聚合计算器
 │
 ├── pipelines/               # 流水线编排层 ⏳
 │   ├── base.py
@@ -157,6 +170,7 @@ core/
 │   ├── adj_factor.py
 │   ├── stock_basic_info.py
 │   ├── calendar.py
+│   ├── intraday_kline.py   # 分时K线业务数据模型
 │   └── orm.py              # ORM 模型
 │
 ├── orchestrator/            # 调度编排层 ⏳
@@ -178,36 +192,53 @@ core/
 
 ### 1.4 项目进度
 
-#### ✅ 已完成（约 70%）
+#### ✅ 已完成（约 85%）
 
 1. **数据采集层（Collectors）** - 100%
    - 所有采集器已实现
    - 支持 Tushare 数据源
+   - 支持 Akshare 数据源（实时行情）
    - 包含重试机制和错误处理
+   - ✅ 新增：`IntradayKlineCollector` - 分时数据采集器
 
 2. **数据转换层（Transformers）** - 100%
    - 所有转换器已实现
    - 支持数据清洗、标准化、验证
+   - ✅ 新增：`IntradayKlineTransformer` - 分时数据转换器（支持 akshare 数据格式标准化）
 
 3. **数据加载层（Loaders）** - 100%
    - 所有加载器已实现
    - 支持三种加载策略（append/replace/upsert）
    - 支持 MySQL 数据库
    - 支持批量加载
+   - ✅ 新增：`IntradayKlineLoader` - 分时数据加载器
 
 4. **数据模型（Models）** - 100%
    - 业务数据模型已实现
    - ORM 模型已实现并统一管理
+   - ✅ 新增：`IntradayKline` - 分时数据业务模型
+   - ✅ 新增：`IntradayKlineORM` - 分时数据 ORM 模型
 
-5. **公共组件（Common）** - 50%
+5. **计算器模块（Calculators）** - 100% ✅
+   - ✅ `QFQCalculator` - 前复权计算器
+   - ✅ `Aggregator` - 聚合计算器（分时数据聚合为日K线）
+
+6. **分时数据模块（Intraday）** - 100% ✅
+   - ✅ 分时数据采集（使用 akshare 实时行情接口）
+   - ✅ 分时数据转换（标准化 akshare 数据格式）
+   - ✅ 分时数据加载（支持 MySQL 存储）
+   - ✅ 分时数据模型（业务模型和 ORM 模型）
+
+7. **公共组件（Common）** - 50%
    - 异常定义已完成
    - 验证器和工具函数待实现
 
-#### ⏳ 待实现（约 30%）
+#### ⏳ 待实现（约 15%）
 
 1. **流水线编排层（Pipelines）** - 0%
    - 框架已搭建
    - 需要实现具体的 ETL 流程编排
+   - 需要实现分时数据流水线
 
 2. **调度编排层（Orchestrator）** - 0%
    - 框架已搭建
@@ -821,28 +852,36 @@ class DailyPipeline(BasePipeline):
 
 ## 九、项目进度总结
 
-### 总体进度：约 70%
+### 总体进度：约 85%
 
 - ✅ **数据采集层（Collectors）** - 100%
+  - 支持 Tushare 和 Akshare 数据源
+  - 包含分时数据采集器
 - ✅ **数据转换层（Transformers）** - 100%
+  - 包含分时数据转换器（支持 akshare 数据格式标准化）
 - ✅ **数据加载层（Loaders）** - 100%
+  - 包含分时数据加载器
 - ✅ **数据模型（Models）** - 100%
+  - 包含分时数据业务模型和 ORM 模型
+- ✅ **计算器模块（Calculators）** - 100% ✅
+  - 前复权计算器（QFQCalculator）
+  - 聚合计算器（Aggregator）
+- ✅ **分时数据模块（Intraday）** - 100% ✅
+  - 分时数据采集、转换、加载完整实现
 - ⏳ **流水线编排层（Pipelines）** - 0%（框架已搭建）
 - ⏳ **调度编排层（Orchestrator）** - 0%（框架已搭建）
 - ⏳ **配置管理** - 0%（示例文件已提供）
 - ⏳ **公共组件（部分）** - 50%（异常定义已完成）
-- ⏳ **计算器模块（Calculators）** - 0%（架构已设计）
-- ⏳ **分时数据模块（Intraday）** - 0%（架构已设计）
 
 ### 下一步计划
 
 1. 实现 Pipelines 层的具体 ETL 流程编排
+   - 实现分时数据流水线
+   - 实现日K线流水线（集成前复权计算）
 2. 实现 Orchestrator 层的任务调度和依赖管理
 3. 完善配置管理系统
 4. 实现公共工具函数
-5. 实现计算器模块（前复权计算器、聚合计算器）
-6. 实现分时数据模块（采集、转换、加载）
-7. 编写单元测试和集成测试
+5. 编写单元测试和集成测试
 
 ---
 
