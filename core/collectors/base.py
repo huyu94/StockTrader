@@ -184,6 +184,10 @@ class BaseCollector(ABC):
                 return TushareProvider()
             except Exception as e:
                 raise CollectorException(f"无法创建 TushareProvider: {e}")
+        elif self.source == "akshare":
+            # akshare 是本地库，不需要 Provider 实例
+            # 直接在 Collector 中调用 akshare 函数
+            return None
         else:
             raise CollectorException(f"不支持的数据源: {self.source}")
 

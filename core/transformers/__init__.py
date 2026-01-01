@@ -9,6 +9,7 @@ from core.transformers.daily_kline import DailyKlineTransformer
 from core.transformers.adj_factor import AdjFactorTransformer
 from core.transformers.basic_info import BasicInfoTransformer
 from core.transformers.trade_calendar import TradeCalendarTransformer
+from core.transformers.intraday_kline import IntradayKlineTransformer
 
 __all__ = [
     "BaseTransformer",
@@ -16,5 +17,6 @@ __all__ = [
     "AdjFactorTransformer",
     "BasicInfoTransformer",
     "TradeCalendarTransformer",
+    "IntradayKlineTransformer",
 ]
 

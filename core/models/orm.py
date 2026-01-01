@@ -111,3 +111,23 @@ class AdjFactorORM(Base):
         {'comment': '复权因子表（仅存储除权除息日的复权因子）'}
     )
 
+
+class IntradayKlineORM(Base):
+    """分时K线数据表ORM模型"""
+    __tablename__ = 'intraday_kline'
+    
+    ts_code = Column(VARCHAR(12), nullable=False, primary_key=True, comment='股票代码')
+    trade_date = Column(DATE, nullable=False, primary_key=True, comment='交易日期')
+    time = Column(VARCHAR(8), nullable=False, primary_key=True, comment='时间 (HH:MM:SS)')
+    datetime = Column(VARCHAR(19), nullable=True, comment='完整时间戳 (YYYY-MM-DD HH:MM:SS)')
+    price = Column(DECIMAL(10, 2), nullable=True, comment='价格（元，精确到分）')
+    volume = Column(BigInteger, nullable=True, comment='成交量（手）')
+    amount = Column(DECIMAL(15, 2), nullable=True, comment='成交额（元，精确到分）')
+    
+    __table_args__ = (
+        PrimaryKeyConstraint('ts_code', 'trade_date', 'time'),
+        Index('idx_intraday_ts_code', 'ts_code'),
+        Index('idx_intraday_trade_date', 'trade_date'),
+        Index('idx_intraday_datetime', 'datetime'),
+        {'comment': '分时K线数据表'}
+    )

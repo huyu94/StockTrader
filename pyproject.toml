@@ -35,3 +35,7 @@ markers = [
 ]
 # 默认跳过慢速测试，可以通过 -m slow 来运行
 addopts = "-v --tb=short -m 'not slow'"
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

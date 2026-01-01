@@ -10,6 +10,7 @@ from core.collectors.adj_factor import AdjFactorCollector
 from core.collectors.ex_date import ExDateCollector
 from core.collectors.basic_info import BasicInfoCollector
 from core.collectors.trade_calendar import TradeCalendarCollector
+from core.collectors.intraday_kline import IntradayKlineCollector
 
 __all__ = [
     "BaseCollector",
@@ -18,5 +19,6 @@ __all__ = [
     "ExDateCollector",
     "BasicInfoCollector",
     "TradeCalendarCollector",
+    "IntradayKlineCollector",
 ]
 
