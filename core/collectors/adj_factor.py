@@ -84,7 +84,6 @@ class AdjFactorCollector(BaseCollector):
             logger.error(f"采集复权因子数据失败: {e}")
             raise CollectorException(f"采集复权因子数据失败: {e}") from e
 
-
     def get_single_stock_adj_factor(self, ts_code: str) -> pd.DataFrame:
         """
         获取指定股票的复权因子数据

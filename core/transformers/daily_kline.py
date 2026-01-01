@@ -117,6 +117,10 @@ class DailyKlineTransformer(BaseTransformer):
             if 'ts_code' in df.columns and 'trade_date' in df.columns:
                 df = df.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
             
+            # 9. 将所有 nan 值转换为 None（MySQL 不支持 nan）
+            # 使用 where 方法将 nan 替换为 None
+            df = df.where(pd.notna(df), None)
+            
             logger.info(f"转换完成，最终数据量: {len(df)} 条")
             return df
             

@@ -4,13 +4,14 @@
 负责将处理后的日K线数据持久化到数据库
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from loguru import logger
 
 from core.loaders.base import BaseLoader
 from core.common.exceptions import LoaderException
 from core.models.orm import DailyKlineORM
+from utils.date_helper import DateHelper
 
 
 
@@ -48,7 +49,14 @@ class DailyKlineLoader(BaseLoader):
         return DailyKlineORM
     
     def _get_required_columns(self) -> List[str]:
-        """获取必需的数据列"""
+        """
+        获取必需的数据列
+        
+        注意：对于只更新前复权价格的场景，只需要主键列和前复权价格列
+        """
+        # 如果配置了只更新前复权价格，则只要求主键列
+        if self.config.get("update_qfq_only", False):
+            return ['ts_code', 'trade_date']
         return ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
     
     def load(self, data: pd.DataFrame) -> None:
@@ -83,4 +91,72 @@ class DailyKlineLoader(BaseLoader):
         except Exception as e:
             logger.error(f"加载日K线数据失败: {e}")
             raise LoaderException(f"加载日K线数据失败: {e}") from e
+    
+    def read(
+        self,
+        ts_codes: Optional[Union[str, List[str]]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        从数据库读取日K线数据
+        
+        Args:
+            ts_codes: 股票代码，可以是单个字符串或字符串列表（可选，如果不提供则读取所有股票）
+            start_date: 开始日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
+            end_date: 结束日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
+            
+        Returns:
+            pd.DataFrame: 日K线数据
+        """
+        try:
+            model_class = self._get_orm_model()
+            
+            with self._get_session() as session:
+                query = session.query(model_class)
+                
+                # 构建过滤条件
+                if ts_codes is not None:
+                    if isinstance(ts_codes, str):
+                        ts_codes_list = [ts_codes]
+                    else:
+                        ts_codes_list = ts_codes
+                    query = query.filter(model_class.ts_code.in_(ts_codes_list))
+                
+                if start_date is not None:
+                    start_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(start_date)
+                    start_date_obj = DateHelper.parse_to_date(start_date_normalized)
+                    query = query.filter(model_class.trade_date >= start_date_obj)
+                
+                if end_date is not None:
+                    end_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(end_date)
+                    end_date_obj = DateHelper.parse_to_date(end_date_normalized)
+                    query = query.filter(model_class.trade_date <= end_date_obj)
+                
+                # 排序
+                if ts_codes is not None and isinstance(ts_codes, str):
+                    # 单只股票按日期排序
+                    query = query.order_by(model_class.trade_date)
+                else:
+                    # 多只股票按股票代码和日期排序
+                    query = query.order_by(model_class.ts_code, model_class.trade_date)
+                
+                results = query.all()
+                
+                if not results:
+                    return pd.DataFrame()
+                
+                # 转换为DataFrame
+                data = [DailyKlineORM._model_to_dict(row) for row in results]
+                df = pd.DataFrame(data)
+                
+                # 转换trade_date为datetime（如果存在）
+                if "trade_date" in df.columns:
+                    df["trade_date"] = pd.to_datetime(df["trade_date"], errors='coerce')
+                
+                return df
+                
+        except Exception as e:
+            logger.error(f"读取日K线数据失败: {e}")
+            raise LoaderException(f"读取日K线数据失败: {e}") from e
 

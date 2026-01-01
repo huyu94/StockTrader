@@ -11,7 +11,7 @@ import pandas as pd
 from loguru import logger
 
 from core.common.exceptions import CollectorException, NetworkException
-
+from core.providers.tushare_provider import TushareProvider
 
 class BaseCollector(ABC):
     """
@@ -39,17 +39,17 @@ class BaseCollector(ABC):
     @abstractmethod
     def collect(self, params: Dict[str, Any]) -> pd.DataFrame:
         """
-        采集数据的核心方法
+        采集数据的核心方法（单次 API 调用）
         
         Args:
-            params: 采集参数字典，包含股票代码、日期范围等参数
-                - stock_codes: List[str], 股票代码列表
-                - start_date: str, 开始日期 (YYYY-MM-DD)
-                - end_date: str, 结束日期 (YYYY-MM-DD)
-                - 其他数据类型特定的参数
+            params: 采集参数字典，应该对应一次 API 调用的参数
+                - ts_code: str, 单个股票代码（如果 API 支持批量，可以是列表）
+                - start_date: str, 开始日期
+                - end_date: str, 结束日期
+                - 其他 API 特定参数
                 
         Returns:
-            pd.DataFrame: 采集到的原始数据
+            pd.DataFrame: 采集到的原始数据（单次 API 调用的结果）
             
         Raises:
             CollectorException: 当采集失败时抛出异常
@@ -180,7 +180,6 @@ class BaseCollector(ABC):
         # 根据配置创建提供者
         if self.source == "tushare":
             try:
-                from src.fetch.providers import TushareProvider
                 return TushareProvider()
             except Exception as e:
                 raise CollectorException(f"无法创建 TushareProvider: {e}")
