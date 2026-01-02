@@ -324,19 +324,6 @@ class HistoryPipeline(BasePipeline):
             start_date: 开始日期 (YYYYMMDD)
             end_date: 结束日期 (YYYYMMDD)
         """
-
-        # TODO: 线程池用到类变量里，
-        # TODO: 把change等字段设为optional
-        """
-        2026-01-01 23:39:41.742 | ERROR    | core.loaders.daily_kline:load:92 - 加载日K线数据失败: (pymysql.err.ProgrammingError) nan can not be used with MySQL
-[SQL: 
-                INSERT INTO `daily_kline` (`ts_code`, `trade_date`, `open`, `high`, `low`, `close`, `change`, `vol`, `amount`)
-                VALUES (%(ts_code)s, %(trade_date)s, %(open)s, %(high)s, %(low)s, %(close)s, %(change)s, %(vol)s, %(amount)s)
-                ON DUPLICATE KEY UPDATE `open`=VALUES(`open`), `high`=VALUES(`high`), `low`=VALUES(`low`), `close`=VALUES(`close`), `change`=VALUES(`change`), `vol`=VALUES(`vol`), `amount`=VALUES(`amount`)
-            ]
-[parameters: {'ts_code': '920651.BJ', 'trade_date': '2016-01-29', 'open': 21.85, 'high': 21.85, 'low': 20.71, 'close': 20.71, 'change': nan, 'vol': 60.0, 'amount': 127.83}]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-        """
         try:
             # 异步线程池
             write_executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="write_thread")
@@ -356,7 +343,6 @@ class HistoryPipeline(BasePipeline):
                     if transformed_data is None or transformed_data.empty:
                         continue
                     
-                    logger.debug(f"提交写入任务，任务日期: {trade_date_str}")
                     future = write_executor.submit(self.daily_kline_loader.load, transformed_data)
                     pending_writes.append((future, f"日期: {trade_date_str}数据写入"))
                     pbar.update(1)
