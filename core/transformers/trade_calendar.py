@@ -65,7 +65,6 @@ class TradeCalendarTransformer(BaseTransformer):
             return pd.DataFrame(columns=['cal_date', 'sse_open', 'szse_open', 'cffex_open', 
                                          'shfe_open', 'czce_open', 'dce_open', 'ine_open'])
         
-        logger.info(f"开始转换交易日历，数据量: {len(data)}")
         
         try:
             # 复制数据，避免修改原始数据
@@ -131,7 +130,7 @@ class TradeCalendarTransformer(BaseTransformer):
             # 10. 确保 cal_date 是字符串格式
             result_df['cal_date'] = result_df['cal_date'].astype(str)
             
-            logger.info(f"转换完成，最终数据量: {len(result_df)} 条（从 {len(df)} 条长格式数据转换）")
+            logger.debug(f"转换完成，最终数据量: {len(result_df)} 条（从 {len(df)} 条长格式数据转换）")
             return result_df
             
         except Exception as e:

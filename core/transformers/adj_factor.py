@@ -41,7 +41,6 @@ class AdjFactorTransformer(BaseTransformer):
             logger.warning("输入数据为空，返回空 DataFrame")
             return pd.DataFrame()
         
-        logger.info(f"开始转换复权因子数据，数据量: {len(data)}")
         
         try:
             # 复制数据，避免修改原始数据
@@ -73,7 +72,7 @@ class AdjFactorTransformer(BaseTransformer):
                 df = df[(df['adj_factor'].notna()) & (df['adj_factor'] > 0)]
                 removed_count = initial_count - len(df)
                 if removed_count > 0:
-                    logger.info(f"过滤无效复权因子数据: {removed_count} 条")
+                    logger.warning(f"过滤无效复权因子数据: {removed_count} 条")
             
             # 5. 确保必需字段存在
             required_columns = ['ts_code', 'trade_date', 'adj_factor']
@@ -85,7 +84,7 @@ class AdjFactorTransformer(BaseTransformer):
             if 'ts_code' in df.columns and 'trade_date' in df.columns:
                 df = df.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
             
-            logger.info(f"转换完成，最终数据量: {len(df)} 条")
+            logger.debug(f"转换完成，初始数据量： {len(data)} 条， 最终数据量: {len(df)} 条")
             return df
             
         except Exception as e:

@@ -13,6 +13,22 @@ from core.collectors.base import BaseCollector
 from core.transformers.base import BaseTransformer
 from core.loaders.base import BaseLoader
 from core.common.exceptions import PipelineException
+# 导入各个数据源的组件
+from core.collectors.basic_info import BasicInfoCollector
+from core.collectors.trade_calendar import TradeCalendarCollector
+from core.collectors.daily_kline import DailyKlineCollector
+from core.collectors.adj_factor import AdjFactorCollector
+from core.collectors.ex_date import ExDateCollector
+
+from core.transformers.basic_info import BasicInfoTransformer
+from core.transformers.trade_calendar import TradeCalendarTransformer
+from core.transformers.daily_kline import DailyKlineTransformer
+from core.transformers.adj_factor import AdjFactorTransformer
+
+from core.loaders.basic_info import BasicInfoLoader
+from core.loaders.trade_calendar import TradeCalendarLoader
+from core.loaders.daily_kline import DailyKlineLoader
+from core.loaders.adj_factor import AdjFactorLoader
 
 
 class BasePipeline(ABC):
@@ -25,9 +41,6 @@ class BasePipeline(ABC):
     
     def __init__(
         self,
-        collector: BaseCollector,
-        transformer: BaseTransformer,
-        loader: BaseLoader,
         config: Optional[Dict[str, Any]] = None
     ):
         """
@@ -39,62 +52,25 @@ class BasePipeline(ABC):
             loader: 数据加载器实例
             config: 流水线配置字典
         """
-        self.collector = collector
-        self.transformer = transformer
-        self.loader = loader
         self.config = config or {}
         logger.debug(f"初始化流水线: {self.__class__.__name__}")
-    
-    @abstractmethod
-    def run(self, **kwargs) -> None:
-        """
-        执行 ETL 流程的核心方法
-        
-        典型的执行流程：
-        1. Extract - 采集数据
-        2. Transform - 转换数据
-        3. Load - 加载数据
-        
-        Args:
-            **kwargs: 流水线执行参数，如 stock_codes, start_date, end_date 等
-            
-        Raises:
-            PipelineException: 当执行失败时抛出异常
-        """
-        pass
-    
-    def run_incremental(self, stock_codes: List[str], days_back: int = 1) -> None:
-        """
-        增量更新模式（框架方法）
-        
-        Args:
-            stock_codes: 股票代码列表
-            days_back: 回溯天数，默认 1 天（更新最近一天的数据）
-        """
-        raise NotImplementedError("run_incremental 方法待实现")
-    
-    def run_full(self, stock_codes: List[str]) -> None:
-        """
-        全量更新模式（框架方法）
-        
-        Args:
-            stock_codes: 股票代码列表
-        """
-        raise NotImplementedError("run_full 方法待实现")
-    
-    def _execute_etl(self, params: Dict[str, Any]) -> None:
-        """
-        执行 ETL 流程的通用方法（框架方法）
-        
-        Args:
-            params: 采集参数
-        """
-        logger.info(f"开始执行 ETL 流程: {self.__class__.__name__}")
-        # 1. Extract - 采集数据
-        # raw_data = self.collector.collect(params)
-        # 2. Transform - 转换数据
-        # clean_data = self.transformer.transform(raw_data)
-        # 3. Load - 加载数据
-        # self.loader.load(clean_data)
-        raise NotImplementedError("_execute_etl 方法待实现")
 
+
+                # 保存各个组件
+        self.basic_info_collector = BasicInfoCollector()
+        self.basic_info_transformer = BasicInfoTransformer()
+        self.basic_info_loader = BasicInfoLoader()
+        
+        self.trade_calendar_collector = TradeCalendarCollector()
+        self.trade_calendar_transformer = TradeCalendarTransformer()
+        self.trade_calendar_loader = TradeCalendarLoader()
+        
+        self.daily_kline_collector = DailyKlineCollector()
+        self.daily_kline_transformer = DailyKlineTransformer()
+        self.daily_kline_loader = DailyKlineLoader()
+        
+        self.adj_factor_collector = AdjFactorCollector()
+        self.adj_factor_transformer = AdjFactorTransformer()
+        self.adj_factor_loader = AdjFactorLoader()
+
+        self.ex_date_collector = ExDateCollector()

@@ -7,8 +7,10 @@
 from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
 import math
+import signal
+import sys
 
 from tqdm import tqdm
 
@@ -50,122 +52,55 @@ class HistoryPipeline(BasePipeline):
     4. 更新 adj_factor（复权因子，依赖股票代码和日期范围）
     """
     
-    def __init__(
-        self,
-        basic_info_collector: Optional[BaseCollector] = None,
-        basic_info_transformer: Optional[BaseTransformer] = None,
-        basic_info_loader: Optional[BaseLoader] = None,
-        trade_calendar_collector: Optional[BaseCollector] = None,
-        trade_calendar_transformer: Optional[BaseTransformer] = None,
-        trade_calendar_loader: Optional[BaseLoader] = None,
-        daily_kline_collector: Optional[BaseCollector] = None,
-        daily_kline_transformer: Optional[BaseTransformer] = None,
-        daily_kline_loader: Optional[BaseLoader] = None,
-        adj_factor_collector: Optional[BaseCollector] = None,
-        adj_factor_transformer: Optional[BaseTransformer] = None,
-        adj_factor_loader: Optional[BaseLoader] = None,
-        config: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self):
         """
         初始化历史数据补全流水线
-        
-        Args:
-            basic_info_collector: 股票基本信息采集器（如果为 None，则使用默认的 BasicInfoCollector）
-            basic_info_transformer: 股票基本信息转换器（如果为 None，则使用默认的 BasicInfoTransformer）
-            basic_info_loader: 股票基本信息加载器（如果为 None，则使用默认的 BasicInfoLoader）
-            trade_calendar_collector: 交易日历采集器（如果为 None，则使用默认的 TradeCalendarCollector）
-            trade_calendar_transformer: 交易日历转换器（如果为 None，则使用默认的 TradeCalendarTransformer）
-            trade_calendar_loader: 交易日历加载器（如果为 None，则使用默认的 TradeCalendarLoader）
-            daily_kline_collector: 日K线采集器（如果为 None，则使用默认的 DailyKlineCollector）
-            daily_kline_transformer: 日K线转换器（如果为 None，则使用默认的 DailyKlineTransformer）
-            daily_kline_loader: 日K线加载器（如果为 None，则使用默认的 DailyKlineLoader）
-            adj_factor_collector: 复权因子采集器（如果为 None，则使用默认的 AdjFactorCollector）
-            adj_factor_transformer: 复权因子转换器（如果为 None，则使用默认的 AdjFactorTransformer）
-            adj_factor_loader: 复权因子加载器（如果为 None，则使用默认的 AdjFactorLoader）
-            config: 流水线配置字典
         """
-        # 初始化 basic_info 组件
-        if basic_info_collector is None:
-            basic_info_collector_config = config.get("basic_info_collector", {}) if config else {}
-            basic_info_collector = BasicInfoCollector(config=basic_info_collector_config)
-        
-        if basic_info_transformer is None:
-            basic_info_transformer_config = config.get("basic_info_transformer", {}) if config else {}
-            basic_info_transformer = BasicInfoTransformer(config=basic_info_transformer_config)
-        
-        if basic_info_loader is None:
-            basic_info_loader_config = config.get("basic_info_loader", {}) if config else {}
-            if 'load_strategy' not in basic_info_loader_config:
-                basic_info_loader_config['load_strategy'] = 'upsert'
-            basic_info_loader = BasicInfoLoader(config=basic_info_loader_config)
-        
-        # 初始化 trade_calendar 组件
-        if trade_calendar_collector is None:
-            trade_calendar_collector_config = config.get("trade_calendar_collector", {}) if config else {}
-            trade_calendar_collector = TradeCalendarCollector(config=trade_calendar_collector_config)
-        
-        if trade_calendar_transformer is None:
-            trade_calendar_transformer_config = config.get("trade_calendar_transformer", {}) if config else {}
-            trade_calendar_transformer = TradeCalendarTransformer(config=trade_calendar_transformer_config)
-        
-        if trade_calendar_loader is None:
-            trade_calendar_loader_config = config.get("trade_calendar_loader", {}) if config else {}
-            if 'load_strategy' not in trade_calendar_loader_config:
-                trade_calendar_loader_config['load_strategy'] = 'upsert'
-            trade_calendar_loader = TradeCalendarLoader(config=trade_calendar_loader_config)
-        
-        # 初始化 daily_kline 组件
-        if daily_kline_collector is None:
-            daily_kline_collector_config = config.get("daily_kline_collector", {}) if config else {}
-            daily_kline_collector = DailyKlineCollector(config=daily_kline_collector_config)
-        
-        if daily_kline_transformer is None:
-            daily_kline_transformer_config = config.get("daily_kline_transformer", {}) if config else {}
-            daily_kline_transformer = DailyKlineTransformer(config=daily_kline_transformer_config)
-        
-        if daily_kline_loader is None:
-            daily_kline_loader_config = config.get("daily_kline_loader", {}) if config else {}
-            if 'load_strategy' not in daily_kline_loader_config:
-                daily_kline_loader_config['load_strategy'] = 'upsert'
-            daily_kline_loader = DailyKlineLoader(config=daily_kline_loader_config)
-        
-        # 初始化 adj_factor 组件
-        if adj_factor_collector is None:
-            adj_factor_collector_config = config.get("adj_factor_collector", {}) if config else {}
-            adj_factor_collector = AdjFactorCollector(config=adj_factor_collector_config)
-        
-        if adj_factor_transformer is None:
-            adj_factor_transformer_config = config.get("adj_factor_transformer", {}) if config else {}
-            adj_factor_transformer = AdjFactorTransformer(config=adj_factor_transformer_config)
-        
-        if adj_factor_loader is None:
-            adj_factor_loader_config = config.get("adj_factor_loader", {}) if config else {}
-            if 'load_strategy' not in adj_factor_loader_config:
-                adj_factor_loader_config['load_strategy'] = 'upsert'
-            adj_factor_loader = AdjFactorLoader(config=adj_factor_loader_config)
-        
-        # 保存各个组件
-        self.basic_info_collector = basic_info_collector
-        self.basic_info_transformer = basic_info_transformer
-        self.basic_info_loader = basic_info_loader
-        
-        self.trade_calendar_collector = trade_calendar_collector
-        self.trade_calendar_transformer = trade_calendar_transformer
-        self.trade_calendar_loader = trade_calendar_loader
-        
-        self.daily_kline_collector = daily_kline_collector
-        self.daily_kline_transformer = daily_kline_transformer
-        self.daily_kline_loader = daily_kline_loader
-        
-        self.adj_factor_collector = adj_factor_collector
-        self.adj_factor_transformer = adj_factor_transformer
-        self.adj_factor_loader = adj_factor_loader
 
         
-        # BasePipeline 需要 collector, transformer, loader，我们使用 daily_kline 作为占位符
+
+
+        self.write_executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="write_thread")
+        self.pending_writes = []
+        self._shutdown_requested = False
+        
+        # 注册信号处理器，用于优雅关闭
+        # Windows 只支持 SIGINT，不支持 SIGTERM
+        signal.signal(signal.SIGINT, self._signal_handler)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        
         # 因为这是主要的数据源
-        super().__init__(daily_kline_collector, daily_kline_transformer, daily_kline_loader, config)
+        super().__init__()
     
+    def _signal_handler(self, signum, frame):
+        """信号处理器，用于捕获 Ctrl+C 等中断信号"""
+        logger.warning(f"收到中断信号 ({signum})，正在优雅关闭...")
+        self._shutdown_requested = True
+        self._graceful_shutdown()
+    
+    def _graceful_shutdown(self):
+        """优雅关闭线程池"""
+        if self.write_executor is None:
+            return
+        
+        logger.info("正在关闭写入线程池...")
+        # 取消所有未开始的任务
+        for future, desc in self.pending_writes:
+            if not future.done():
+                future.cancel()
+                logger.debug(f"已取消任务: {desc}")
+        
+        # 关闭线程池，等待正在执行的任务完成（最多等待30秒）
+        self.write_executor.shutdown(wait=False)
+        logger.info("写入线程池已关闭")
+    
+    def __del__(self):
+        if hasattr(self, 'write_executor') and self.write_executor is not None:
+            self._graceful_shutdown()
+
+
+
     def run(self, start_date: str, end_date: str, **kwargs) -> None:
         """
         执行历史数据补全流水线
@@ -193,10 +128,6 @@ class HistoryPipeline(BasePipeline):
             # 转换为 YYYYMMDD 格式（用于 API 调用）
             start_date_api = DateHelper.normalize_to_yyyymmdd(start_date)
             end_date_api = DateHelper.normalize_to_yyyymmdd(end_date)
-            
-
-            # 1. 更新 basic_info（股票基本信息）
-            # 1
 
 
             # 获取更新选项
@@ -232,13 +163,28 @@ class HistoryPipeline(BasePipeline):
                 logger.info("-" * 60)
                 self._update_adj_factor(start_date_api, end_date_api)
             
+
+            logger.info("等待写入完成...")
+            self._wait_write_task_finish()
+            logger.info("写入完成")
+
+
             logger.info("=" * 60)
             logger.info("历史数据补全流水线执行完成！")
             logger.info("=" * 60)
             
+        except KeyboardInterrupt:
+            logger.warning("用户中断了流水线执行")
+            self._graceful_shutdown()
+            raise
         except Exception as e:
             logger.error(f"执行历史数据补全流水线失败: {e}")
+            self._graceful_shutdown()
             raise PipelineException(f"执行历史数据补全流水线失败: {e}") from e
+        finally:
+            # 确保线程池被关闭
+            if not self._shutdown_requested:
+                self._graceful_shutdown()
     
     def _update_basic_info(self) -> None:
         """
@@ -285,10 +231,10 @@ class HistoryPipeline(BasePipeline):
         try:
             # 1. Extract - 采集数据
             logger.info(f"采集交易日历数据，日期范围: {start_date} ~ {end_date}...")
-            raw_data = self.trade_calendar_collector.collect({
-                "start_date": start_date,
-                "end_date": end_date
-            })
+            raw_data = self.trade_calendar_collector.collect(
+                start_date=start_date,
+                end_date=end_date
+            )
             
             if raw_data is None or raw_data.empty:
                 logger.warning("未采集到交易日历数据")
@@ -326,36 +272,30 @@ class HistoryPipeline(BasePipeline):
         """
         try:
             # 异步线程池
-            write_executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="write_thread")
-            pending_writes = [] 
-            ts_code_list = self.basic_info_collector.get_all_ts_codes()
             start_date = DateHelper.parse_to_date(start_date)
             end_date = DateHelper.parse_to_date(end_date)
             len_date_range = (end_date - start_date).days + 1
             with tqdm(total= len_date_range, desc="采集日K线数据") as pbar:
                 for trade_date in pd.date_range(start_date, end_date):
+                    # 检查是否收到关闭请求
+                    if self._shutdown_requested:
+                        logger.warning("收到关闭请求，停止采集数据")
+                        break
+                    
                     trade_date_str = DateHelper.normalize_to_yyyymmdd(trade_date.strftime('%Y-%m-%d'))
                     raw_data = self.daily_kline_collector.collect({'trade_date': trade_date_str})
                     if raw_data is None or raw_data.empty:
+                        pbar.update(1)
                         continue 
 
                     transformed_data = self.daily_kline_transformer.transform(raw_data)
                     if transformed_data is None or transformed_data.empty:
+                        pbar.update(1)
                         continue
                     
-                    future = write_executor.submit(self.daily_kline_loader.load, transformed_data)
-                    pending_writes.append((future, f"日期: {trade_date_str}数据写入"))
+                    future = self.write_executor.submit(self.daily_kline_loader.load, transformed_data)
+                    self.pending_writes.append((future, f"日期: {trade_date_str} daily kline数据写入"))
                     pbar.update(1)
-
-            # 等待所有写入完成
-            with tqdm(total=len(pending_writes), desc="等待写入完成", unit="批", leave=False) as pbar:
-                for future, desc in pending_writes:
-                    try:
-                        future.result()
-                        pbar.update(1)
-                    except Exception as e:
-                        logger.error(f"写入日K线数据失败: {e}")
-                        pbar.update(1)
         except Exception as e:
             logger.error(f"更新日K线数据失败: {e}")
             raise
@@ -376,30 +316,61 @@ class HistoryPipeline(BasePipeline):
             ts_code_list = self.basic_info_collector.get_all_ts_codes()
             
             # 复权因子需要按股票代码逐个采集
-            for ts_code in ts_code_list:
-                try:
-                    raw_data = self.adj_factor_collector.get_batch_stocks_adj_factor(ts_code_list)
-                    logger.info(f"✓ 采集完成，数据量: {len(raw_data)} 条")
-                except Exception as e:
-                    logger.warning(f"采集股票 {ts_code} 的复权因子失败: {e}")
-                    continue
-            
-            # 2. Transform - 转换数据
-            logger.info("转换复权因子数据...")
-            clean_data = self.adj_factor_transformer.transform(raw_data)
-            
-            if clean_data is None or clean_data.empty:
-                logger.warning("转换后的复权因子数据为空")
-                return
-            
-            logger.info(f"✓ 转换完成，数据量: {len(clean_data)} 条")
-            
-            # 3. Load - 加载数据
-            logger.info("加载复权因子到数据库...")
-            self.adj_factor_loader.load(clean_data)
-            logger.info(f"✓ 加载完成，共 {len(clean_data)} 条记录")
-            
+            with tqdm(total=len(ts_code_list), desc="采集复权因子数据") as pbar:
+                for ts_code in ts_code_list:
+                    # 检查是否收到关闭请求
+                    if self._shutdown_requested:
+                        logger.warning("收到关闭请求，停止采集数据")
+                        break
+                    
+                    try:
+                        raw_data = self.adj_factor_collector.get_single_stock_adj_factor(ts_code)
+                        if raw_data is None or raw_data.empty:
+                            pbar.update(1)
+                            continue
+                        transformed_data = self.adj_factor_transformer.transform(raw_data)
+                        if transformed_data is None or transformed_data.empty:
+                            pbar.update(1)
+                            continue
+                        future = self.write_executor.submit(self.adj_factor_loader.load, transformed_data)
+                        self.pending_writes.append((future, f"股票: {ts_code} adj factor数据写入"))
+                        pbar.update(1)
+                    except Exception as e:
+                        logger.warning(f"采集股票 {ts_code} 的复权因子失败: {e}")
+                        pbar.update(1)
         except Exception as e:
             logger.error(f"更新复权因子失败: {e}")
             raise
 
+
+
+    def _wait_write_task_finish(self):
+        """等待所有写入任务完成，支持中断"""
+        if not self.pending_writes:
+            return
+        
+        with tqdm(total=len(self.pending_writes), desc="等待写入完成", unit="批", leave=False) as pbar:
+            try:
+                # 使用 as_completed 来等待任务完成，支持中断检查
+                for future in as_completed([f for f, _ in self.pending_writes]):
+                    # 检查是否收到关闭请求
+                    if self._shutdown_requested:
+                        logger.warning("收到关闭请求，停止等待写入任务")
+                        break
+                    
+                    # 找到对应的描述
+                    desc = next((d for f, d in self.pending_writes if f == future), "未知任务")
+                    try:
+                        future.result()
+                        pbar.update(1)
+                    except CancelledError:
+                        logger.debug(f"任务已取消: {desc}")
+                        pbar.update(1)
+                    except Exception as e:
+                        logger.error(f"写入失败 ({desc}): {e}")
+                        pbar.update(1)
+            except KeyboardInterrupt:
+                logger.warning("用户中断，正在关闭...")
+                self._shutdown_requested = True
+            except Exception as e:
+                logger.debug(f"等待任务时出现异常: {e}")

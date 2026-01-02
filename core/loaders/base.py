@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 import os
 import pandas as pd
+import numpy as np
 from loguru import logger
 from contextlib import contextmanager
 from sqlalchemy import create_engine, text
@@ -192,7 +193,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.info(f"追加模式加载完成，共插入 {inserted_count} 条记录")
+        logger.debug(f"追加模式加载完成，共插入 {inserted_count} 条记录")
     
     def _load_replace(self, data: pd.DataFrame) -> None:
         """
@@ -255,7 +256,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.info(f"替换模式加载完成，共插入 {inserted_count} 条记录")
+        logger.debug(f"替换模式加载完成，共插入 {inserted_count} 条记录")
     
     def _load_upsert(self, data: pd.DataFrame) -> None:
         """
@@ -290,7 +291,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.info(f"更新或插入模式加载完成，共处理 {inserted_count} 条记录")
+        logger.debug(f"更新或插入模式加载完成，共处理 {inserted_count} 条记录")
     
     def _bulk_insert_dataframe(
         self,
@@ -324,6 +325,12 @@ class BaseLoader(ABC):
         
         if total_rows == 0:
             return 0
+        
+        # 将字典中的 NaN 值转换为 None，确保 MySQL 兼容性
+        for record in records:
+            for key, value in record.items():
+                if pd.isna(value) or (isinstance(value, float) and np.isnan(value)):
+                    record[key] = None
         
         columns = list(records[0].keys())
         columns_str = ', '.join([f'`{col}`' for col in columns])
@@ -380,6 +387,12 @@ class BaseLoader(ABC):
         
         if total_rows == 0:
             return 0
+        
+        # 将字典中的 NaN 值转换为 None，确保 MySQL 兼容性
+        for record in records:
+            for key, value in record.items():
+                if pd.isna(value) or (isinstance(value, float) and np.isnan(value)):
+                    record[key] = None
         
         preserve_null_set = set(preserve_null_columns) if preserve_null_columns else set()
         

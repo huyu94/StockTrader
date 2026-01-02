@@ -43,7 +43,7 @@ class DailyKlineTransformer(BaseTransformer):
             logger.warning("输入数据为空，返回空 DataFrame")
             return pd.DataFrame()
         
-        logger.info(f"开始转换日K线数据，数据量: {len(data)}")
+        # logger.debug(f"开始转换日K线数据，数据量: {len(data)}")
         
         try:
             # 复制数据，避免修改原始数据
@@ -121,7 +121,7 @@ class DailyKlineTransformer(BaseTransformer):
             # 将所有 pandas/numpy 的 nan 值统一转换为 None，避免 MySQL 报错
             df = df.where(pd.notna(df), None)
             
-            logger.info(f"转换完成，最终数据量: {len(df)} 条")
+            logger.debug(f"转换完成，最终数据量: {len(df)} 条")
             return df
             
         except Exception as e:

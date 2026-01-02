@@ -46,10 +46,9 @@ class IntradayKlineCollector(BaseCollector):
         logger.info(f"开始采集实时行情数据（akshare）")
         
         # 使用 akshare 获取实时行情数据（只返回原始数据，不做任何处理）
+        # 注意：akshare 没有内置重试，但这里直接调用，如果需要重试可以在调用方处理
         try:
-            df = self._retry_collect(
-                self._fetch_akshare_spot_data
-            )
+            df = self._fetch_akshare_spot_data()
             
             if df is None or df.empty:
                 logger.warning("未采集到任何数据")

@@ -73,7 +73,7 @@ class DailyKlineLoader(BaseLoader):
             logger.warning("日K线数据为空，跳过加载")
             return
         
-        logger.info(f"开始加载日K线数据到表 {self.table}，数据量: {len(data)}")
+        # logger.debug(f"开始加载日K线数据到表 {self.table}，数据量: {len(data)}")
         
         try:
             # 根据加载策略选择加载方式
@@ -86,7 +86,7 @@ class DailyKlineLoader(BaseLoader):
             else:
                 raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
             
-            logger.info(f"日K线数据加载完成，表: {self.table}")
+            # logger.info(f"日K线数据加载完成，表: {self.table}")
             
         except Exception as e:
             logger.error(f"加载日K线数据失败: {e}")

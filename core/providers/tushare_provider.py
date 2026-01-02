@@ -82,19 +82,12 @@ class TushareProvider(BaseProvider):
         使用 pro.daily API 获取股票日线数据
         """
         with self._api_lock:
-            start_time = time.time()
             try:
                 df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
-                elapsed = time.time() - start_time
-                logger.debug(f"Tushare API daily success. Time: {elapsed:.3f}s, Rows: {len(df) if df is not None else 0}")
                 return df
             except Exception as e:
-                elapsed = time.time() - start_time
-                logger.error(f"Tushare daily failed. Time: {elapsed:.3f}s. Error: {e}")
                 raise
             finally:
-                elapsed = time.time() - start_time
-                logger.debug(f"Tushare API daily success. Time: {elapsed:.3f}s, Rows: {len(df) if df is not None else 0}")
                 return df
 
     

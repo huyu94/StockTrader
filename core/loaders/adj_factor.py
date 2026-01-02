@@ -65,7 +65,6 @@ class AdjFactorLoader(BaseLoader):
             logger.warning("复权因子数据为空，跳过加载")
             return
         
-        logger.info(f"开始加载复权因子数据到表 {self.table}，数据量: {len(data)}")
         
         try:
             # 根据加载策略选择加载方式
@@ -77,8 +76,6 @@ class AdjFactorLoader(BaseLoader):
                 self._load_upsert(data)
             else:
                 raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
-            
-            logger.info(f"复权因子数据加载完成，表: {self.table}")
             
         except Exception as e:
             logger.error(f"加载复权因子数据失败: {e}")

@@ -21,7 +21,10 @@ class DailyKlineCollector(BaseCollector):
     从数据源（Tushare、Akshare等）采集股票的日K线数据
     """
     
-    def collect(self, params: Dict[str, Any]) -> pd.DataFrame:
+    def collect(
+        self,
+        trade_date: str,
+        ) -> pd.DataFrame:
         """
         采集日K线数据
         
@@ -45,21 +48,14 @@ class DailyKlineCollector(BaseCollector):
         Raises:
             CollectorException: 采集失败时抛出异常
         """
-        # 验证参数（会自动标准化日期格式为 YYYYMMDD）
-        self._validate_params(params, required_keys=["trade_date"])
         
-        trade_date = params.get("trade_date")
         trade_date_str = DateHelper.normalize_to_yyyymmdd(trade_date)
-        logger.info(f"开始采集日K线数据: 交易日期={trade_date}")
-        
+        logger.debug(f"开始采集日K线数据: 交易日期={trade_date_str}")        
         provider = self._get_provider()
         
         try:
-            df = self._retry_collect(
-                provider.query,
-                "daily",
-                trade_date=trade_date_str
-            )
+            # 直接调用 provider.query，它内部已经有重试机制
+            df = provider.query("daily", trade_date=trade_date_str)
             if df is not None and not df.empty:
                 return df
             else:

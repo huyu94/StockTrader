@@ -37,19 +37,17 @@ class BaseCollector(ABC):
         logger.debug(f"初始化采集器: {self.__class__.__name__}, 数据源: {self.source}")
     
     @abstractmethod
-    def collect(self, params: Dict[str, Any]) -> pd.DataFrame:
+    def collect(self, **kwargs) -> pd.DataFrame:
         """
         采集数据的核心方法（单次 API 调用）
         
-        Args:
-            params: 采集参数字典，应该对应一次 API 调用的参数
-                - ts_code: str, 单个股票代码（如果 API 支持批量，可以是列表）
-                - start_date: str, 开始日期
-                - end_date: str, 结束日期
-                - 其他 API 特定参数
-                
+        每个子类应该定义自己的参数签名，例如：
+        - BasicInfoCollector: collect(exchange: Optional[str] = None, ...)
+        - DailyKlineCollector: collect(trade_date: str, ...)
+        - TradeCalendarCollector: collect(start_date: str, end_date: str, ...)
+        
         Returns:
-            pd.DataFrame: 采集到的原始数据（单次 API 调用的结果）
+            pd.DataFrame: 采集到的原始数据
             
         Raises:
             CollectorException: 当采集失败时抛出异常
@@ -58,7 +56,10 @@ class BaseCollector(ABC):
     
     def _retry_collect(self, collect_func, *args, **kwargs) -> pd.DataFrame:
         """
-        带重试机制的数据采集
+        带重试机制的数据采集（已弃用）
+        
+        注意：此方法已不再使用，因为 TushareProvider.query() 内部已经有重试机制。
+        如果将来需要为其他 provider 或直接调用 API 添加重试，可以重新启用此方法。
         
         Args:
             collect_func: 采集函数

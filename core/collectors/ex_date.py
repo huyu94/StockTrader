@@ -5,7 +5,7 @@
 此采集器作为内部组件，主要用于支持 AdjFactorCollector。
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
 
@@ -28,18 +28,26 @@ class ExDateCollector(BaseCollector):
 
 
 
-    def collect(self, params: Dict[str, Any]) -> pd.DataFrame:
+    def collect(
+        self, 
+        ts_code: Optional[str] = None,
+        ex_date: Optional[str] = None,
+        ann_date: Optional[str] = None,
+        record_date: Optional[str] = None,
+        imp_ann_date: Optional[str] = None,
+        fields: Optional[str] = "ts_code,ex_date",
+        **kwargs
+        ) -> pd.DataFrame:
         """
         采集除权除息日数据
         
         Args:
-            params: 采集参数，至少需要提供以下参数之一：
-                - ts_code: str, 股票代码
-                - ex_date: str, 除权除息日 (YYYYMMDD 或 YYYY-MM-DD)
-                - ann_date: str, 公告日 (YYYYMMDD 或 YYYY-MM-DD)
-                - record_date: str, 股权登记日期 (YYYYMMDD 或 YYYY-MM-DD)
-                - imp_ann_date: str, 实施公告日 (YYYYMMDD 或 YYYY-MM-DD)
-                - fields: str, 需要返回的字段，默认为 "ts_code,ex_date"
+            ts_code: str, 股票代码
+            ex_date: str, 除权除息日 (YYYYMMDD 或 YYYY-MM-DD)
+            ann_date: str, 公告日 (YYYYMMDD 或 YYYY-MM-DD)
+            record_date: str, 股权登记日期 (YYYYMMDD 或 YYYY-MM-DD)
+            imp_ann_date: str, 实施公告日 (YYYYMMDD 或 YYYY-MM-DD)
+            fields: str, 需要返回的字段，默认为 "ts_code,ex_date"
                 
         Returns:
             pd.DataFrame: 除权除息日数据
@@ -47,16 +55,23 @@ class ExDateCollector(BaseCollector):
         Raises:
             CollectorException: 采集失败时抛出异常
         """
-        # 参数验证和日期格式化（由 BaseCollector._validate_params 处理）
-        self._validate_params(params)
+        # 参数验证：至少需要提供一个查询参数
+        query_params = {
+            "ts_code": ts_code,
+            "ex_date": ex_date,
+            "ann_date": ann_date,
+            "record_date": record_date,
+            "imp_ann_date": imp_ann_date
+        }
         
-        provider = self._get_provider()
+        if not any(query_params.values()):
+            raise CollectorException("至少需要提供以下参数之一: ts_code, ex_date, ann_date, record_date, imp_ann_date")
         
-        # 提取 fields 参数，如果没有则使用默认值
-        fields = params.pop("fields", "ts_code,ex_date")
+        # 构建查询参数字典（只包含非 None 的值）
+        params = {k: v for k, v in query_params.items() if v is not None}
         
-        # 处理其他日期参数的格式化（ann_date, record_date, imp_ann_date）
-        date_params = ["ann_date", "record_date", "imp_ann_date"]
+        # 处理日期参数的格式化
+        date_params = ["ex_date", "ann_date", "record_date", "imp_ann_date"]
         for date_param in date_params:
             if date_param in params and params[date_param]:
                 try:
@@ -64,27 +79,18 @@ class ExDateCollector(BaseCollector):
                 except ValueError as e:
                     raise CollectorException(f"{date_param} 格式错误: {e}")
         
-        logger.info(f"开始采集除权除息日数据: params={params}")
+        logger.debug(f"开始采集除权除息日数据: params={params}")
         
-        # 检查是否至少有一个查询参数
-        query_params = ["ts_code", "ex_date", "ann_date", "record_date", "imp_ann_date"]
-        if not any(params.get(key) for key in query_params):
-            raise CollectorException("至少需要提供以下参数之一: ts_code, ex_date, ann_date, record_date, imp_ann_date")
+        provider = self._get_provider()
         
-        # 直接调用 API
+        # 直接调用 API，provider.query 内部已经有重试机制
         try:
-            df = self._retry_collect(
-                provider.query,
-                "dividend",
-                fields=fields,
-                **params
-            )
+            df = provider.query("dividend", fields=fields, **params)
             
             if df is not None and not df.empty:
-                logger.info(f"成功采集到 {len(df)} 条除权除息日数据")
                 return df
             else:
-                logger.info("未采集到任何除权除息日数据")
+                logger.warning("未采集到任何除权除息日数据")
                 return pd.DataFrame(columns=fields.split(","))
         except Exception as e:
             logger.error(f"采集除权除息日数据失败: {e}")
@@ -100,13 +106,13 @@ class ExDateCollector(BaseCollector):
         Returns:
             List[str]: 除权除息日列表 (YYYYMMDD 格式)
         """
-        df = self.collect({"ts_code": ts_code, "fields": "ts_code,ex_date"})
+        df = self.collect(ts_code=ts_code, fields="ts_code,ex_date")
         
         if df.empty:
             return []
         
         # 过滤掉空值并转换为列表
-        ex_dates = df[df['ex_date'].notna()]['ex_date'].tolist()
+        ex_dates = df[df.ex_date.notna()]['ex_date'].tolist()
         return ex_dates
 
     def get_single_stock_ex_dates(self, ts_code: str) -> pd.DataFrame:
@@ -119,7 +125,8 @@ class ExDateCollector(BaseCollector):
         Returns:
             pd.DataFrame: 除权除息日数据，包含 ts_code 和 ex_date 列
         """
-        return self.collect({"ts_code": ts_code, "fields": "ts_code,ex_date"})
+        df = self.collect(ts_code=ts_code, fields="ts_code,ex_date")
+        return df[df.ex_date.notna()]
 
     def get_batch_stocks_ex_dates(self, ts_codes: List[str]) -> pd.DataFrame:
         """
