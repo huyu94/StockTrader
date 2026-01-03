@@ -193,7 +193,7 @@ class HistoryPipeline(BasePipeline):
         try:
             # 1. Extract - 采集数据
             logger.info("采集股票基本信息...")
-            raw_data = self.basic_info_collector.collect({})
+            raw_data = self.basic_info_collector.collect()
             
             if raw_data is None or raw_data.empty:
                 logger.warning("未采集到股票基本信息数据")
@@ -283,7 +283,7 @@ class HistoryPipeline(BasePipeline):
                         break
                     
                     trade_date_str = DateHelper.normalize_to_yyyymmdd(trade_date.strftime('%Y-%m-%d'))
-                    raw_data = self.daily_kline_collector.collect({'trade_date': trade_date_str})
+                    raw_data = self.daily_kline_collector.collect(trade_date=trade_date_str)
                     if raw_data is None or raw_data.empty:
                         pbar.update(1)
                         continue 
