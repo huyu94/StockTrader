@@ -77,8 +77,16 @@ class QFQCalculator:
         result_df = kline_df.copy()
         
         # 检查 adj_factor_df 是否为 None 或空
+        # 如果为空，使用默认复权因子1进行计算
         if adj_factor_df is None or adj_factor_df.empty:
-            logger.warning("复权因子数据为空，无法计算前复权价格")
+            logger.warning("复权因子数据为空，使用默认复权因子1进行计算")
+            # 使用默认复权因子1，前复权价格 = 未复权价格 × 1 / 1 = 未复权价格
+            result_df['adj_factor'] = 1.0
+            result_df['close_qfq'] = result_df['close']
+            result_df['open_qfq'] = result_df['open']
+            result_df['high_qfq'] = result_df['high']
+            result_df['low_qfq'] = result_df['low']
+            logger.info(f"使用默认复权因子1完成前复权计算，共处理 {len(result_df)} 条记录")
             return result_df
         
         # 确保必需列存在
@@ -108,7 +116,13 @@ class QFQCalculator:
             stock_adj_factor = adj_factor_df[adj_factor_df['ts_code'] == ts_code].copy()
             
             if stock_adj_factor.empty:
-                logger.warning(f"股票 {ts_code} 没有复权因子数据，跳过前复权计算")
+                # 使用默认复权因子1进行计算
+                logger.warning(f"股票 {ts_code} 没有复权因子数据，使用默认复权因子1进行计算")
+                group_df['adj_factor'] = 1.0
+                group_df['close_qfq'] = group_df['close']
+                group_df['open_qfq'] = group_df['open']
+                group_df['high_qfq'] = group_df['high']
+                group_df['low_qfq'] = group_df['low']
                 result_list.append(group_df)
                 continue
             
@@ -126,26 +140,42 @@ class QFQCalculator:
             ).copy()
             
             # 检查是否有交易日早于最早的复权因子日期
+            # 如果有，使用默认复权因子1填充
             earliest_adj_date = stock_adj_factor['trade_date'].min()
             missing_dates = merged_df[merged_df['trade_date'] < earliest_adj_date]
             if not missing_dates.empty:
                 logger.warning(
                     f"股票 {ts_code} 有 {len(missing_dates)} 个交易日早于最早的复权因子日期 "
-                    f"{earliest_adj_date.strftime('%Y-%m-%d')}，这些交易日的前复权价格将无法计算"
+                    f"{earliest_adj_date.strftime('%Y-%m-%d')}，这些交易日使用默认复权因子1进行计算"
                 )
+                # 为早于最早复权因子日期的交易日填充默认复权因子1
+                merged_df.loc[merged_df['trade_date'] < earliest_adj_date, 'adj_factor'] = 1.0
+            
+            # 填充所有 NaN 的复权因子为默认值1（包括早于最早复权因子日期的情况）
+            merged_df['adj_factor'] = merged_df['adj_factor'].fillna(1.0)
             
             # 获取最新复权因子（所有复权因子中日期最大的）
+            # 如果最新复权因子无效，使用默认值1
             latest_adj_factor = stock_adj_factor.loc[stock_adj_factor['trade_date'].idxmax(), 'adj_factor']
             if pd.isna(latest_adj_factor) or latest_adj_factor <= 0:
-                logger.warning(f"股票 {ts_code} 的最新复权因子无效: {latest_adj_factor}，跳过前复权计算")
-                result_list.append(group_df)
-                continue
+                logger.warning(f"股票 {ts_code} 的最新复权因子无效: {latest_adj_factor}，使用默认复权因子1进行计算")
+                latest_adj_factor = 1.0
+            else:
+                # 确保 latest_adj_factor 是 float 类型（Loader 已处理，但为了安全起见保留转换）
+                latest_adj_factor = float(latest_adj_factor)
             
-            # 计算前复权价格
+            # 确保数值列是 float 类型（Loader 已处理 Decimal 转换，但为了安全起见保留转换）
+            merged_df['adj_factor'] = merged_df['adj_factor'].astype(float)
+            merged_df['close'] = merged_df['close'].astype(float)
+            merged_df['open'] = merged_df['open'].astype(float)
+            merged_df['high'] = merged_df['high'].astype(float)
+            merged_df['low'] = merged_df['low'].astype(float)
+            
+            # 计算前复权价格（使用向量化操作，更高效）
             # 前复权价(T) = 未复权价(T) × 最新复权因子 / 历史复权因子(T)
-            merged_df['ratio'] = merged_df['adj_factor'].apply(
-                lambda x: latest_adj_factor / x if pd.notna(x) and x > 0 else np.nan
-            )
+            merged_df['ratio'] = latest_adj_factor / merged_df['adj_factor']
+            # 处理无效值
+            merged_df.loc[(merged_df['adj_factor'].isna()) | (merged_df['adj_factor'] <= 0), 'ratio'] = np.nan
             
             merged_df['close_qfq'] = merged_df['close'] * merged_df['ratio']
             merged_df['open_qfq'] = merged_df['open'] * merged_df['ratio']

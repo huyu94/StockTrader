@@ -27,7 +27,6 @@ class IntradayKlineLoader(BaseLoader):
         Args:
             config: 配置字典，包含：
                 - table: 表名（默认 "intraday_kline"）
-                - load_strategy: 加载策略（append/replace/upsert，默认 upsert）
                 - batch_size: 批量大小（默认 1000）
                 - upsert_keys: upsert 的键（默认 ['ts_code', 'trade_date', 'time']）
         """
@@ -50,12 +49,13 @@ class IntradayKlineLoader(BaseLoader):
         """获取必需的数据列"""
         return ['ts_code', 'trade_date', 'time', 'price', 'volume', 'amount']
     
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载分时K线数据到数据库
         
         Args:
             data: 待加载的分时K线数据 DataFrame
+            strategy: 加载策略（append/replace/upsert）
             
         Raises:
             LoaderException: 加载失败时抛出异常
@@ -68,14 +68,14 @@ class IntradayKlineLoader(BaseLoader):
         
         try:
             # 根据加载策略选择加载方式
-            if self.load_strategy == self.LOAD_STRATEGY_APPEND:
+            if strategy == self.LOAD_STRATEGY_APPEND:
                 self._load_append(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_REPLACE:
+            elif strategy == self.LOAD_STRATEGY_REPLACE:
                 self._load_replace(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_UPSERT:
+            elif strategy == self.LOAD_STRATEGY_UPSERT:
                 self._load_upsert(data)
             else:
-                raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
+                raise LoaderException(f"不支持的加载策略: {strategy}")
             
             logger.info(f"分时K线数据加载完成，表: {self.table}")
             

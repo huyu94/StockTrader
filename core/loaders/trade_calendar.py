@@ -27,7 +27,6 @@ class TradeCalendarLoader(BaseLoader):
         Args:
             config: 配置字典，包含：
                 - table: 表名（默认 "trade_calendar"）
-                - load_strategy: 加载策略（append/replace/upsert，默认 upsert）
                 - batch_size: 批量大小（默认 1000）
                 - upsert_keys: upsert 的键（默认 ['cal_date']）
                 - preserve_null_columns: 保留NULL的列（默认所有 _open 列）
@@ -57,12 +56,13 @@ class TradeCalendarLoader(BaseLoader):
         """获取必需的数据列"""
         return ['cal_date']
     
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载交易日历数据到数据库
         
         Args:
             data: 待加载的交易日历数据 DataFrame
+            strategy: 加载策略（append/replace/upsert）
             
         Raises:
             LoaderException: 加载失败时抛出异常
@@ -76,14 +76,14 @@ class TradeCalendarLoader(BaseLoader):
         try:
             # 根据加载策略选择加载方式
             # 交易日历通常使用 upsert 策略，并且需要保留现有交易所的值
-            if self.load_strategy == self.LOAD_STRATEGY_APPEND:
+            if strategy == self.LOAD_STRATEGY_APPEND:
                 self._load_append(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_REPLACE:
+            elif strategy == self.LOAD_STRATEGY_REPLACE:
                 self._load_replace(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_UPSERT:
+            elif strategy == self.LOAD_STRATEGY_UPSERT:
                 self._load_upsert(data)
             else:
-                raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
+                raise LoaderException(f"不支持的加载策略: {strategy}")
             
             logger.info(f"交易日历数据加载完成，表: {self.table}")
             

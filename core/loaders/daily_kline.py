@@ -29,7 +29,6 @@ class DailyKlineLoader(BaseLoader):
         Args:
             config: 配置字典，包含：
                 - table: 表名（默认 "daily_kline"）
-                - load_strategy: 加载策略（append/replace/upsert，默认 upsert）
                 - batch_size: 批量大小（默认 1000）
                 - upsert_keys: upsert 的键（默认 ['ts_code', 'trade_date']）
         """
@@ -59,12 +58,13 @@ class DailyKlineLoader(BaseLoader):
             return ['ts_code', 'trade_date']
         return ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
     
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载日K线数据到数据库
         
         Args:
             data: 待加载的日K线数据 DataFrame
+            strategy: 加载策略（append/replace/upsert）
             
         Raises:
             LoaderException: 加载失败时抛出异常
@@ -73,20 +73,16 @@ class DailyKlineLoader(BaseLoader):
             logger.warning("日K线数据为空，跳过加载")
             return
         
-        # logger.debug(f"开始加载日K线数据到表 {self.table}，数据量: {len(data)}")
-        
         try:
             # 根据加载策略选择加载方式
-            if self.load_strategy == self.LOAD_STRATEGY_APPEND:
+            if strategy == self.LOAD_STRATEGY_APPEND:
                 self._load_append(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_REPLACE:
+            elif strategy == self.LOAD_STRATEGY_REPLACE:
                 self._load_replace(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_UPSERT:
+            elif strategy == self.LOAD_STRATEGY_UPSERT:
                 self._load_upsert(data)
             else:
-                raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
-            
-            # logger.info(f"日K线数据加载完成，表: {self.table}")
+                raise LoaderException(f"不支持的加载策略: {strategy}")
             
         except Exception as e:
             logger.error(f"加载日K线数据失败: {e}")
@@ -94,7 +90,7 @@ class DailyKlineLoader(BaseLoader):
     
     def read(
         self,
-        ts_codes: Optional[Union[str, List[str]]] = None,
+        ts_code: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ) -> pd.DataFrame:
@@ -102,7 +98,7 @@ class DailyKlineLoader(BaseLoader):
         从数据库读取日K线数据
         
         Args:
-            ts_codes: 股票代码，可以是单个字符串或字符串列表（可选，如果不提供则读取所有股票）
+            ts_code: 股票代码，可以是单个字符串（可选，如果不提供则读取所有股票）
             start_date: 开始日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
             end_date: 结束日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
             
@@ -116,12 +112,8 @@ class DailyKlineLoader(BaseLoader):
                 query = session.query(model_class)
                 
                 # 构建过滤条件
-                if ts_codes is not None:
-                    if isinstance(ts_codes, str):
-                        ts_codes_list = [ts_codes]
-                    else:
-                        ts_codes_list = ts_codes
-                    query = query.filter(model_class.ts_code.in_(ts_codes_list))
+                if ts_code is not None:
+                    query = query.filter(model_class.ts_code == ts_code)
                 
                 if start_date is not None:
                     start_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(start_date)
@@ -134,12 +126,7 @@ class DailyKlineLoader(BaseLoader):
                     query = query.filter(model_class.trade_date <= end_date_obj)
                 
                 # 排序
-                if ts_codes is not None and isinstance(ts_codes, str):
-                    # 单只股票按日期排序
-                    query = query.order_by(model_class.trade_date)
-                else:
-                    # 多只股票按股票代码和日期排序
-                    query = query.order_by(model_class.ts_code, model_class.trade_date)
+                query = query.order_by(model_class.trade_date)
                 
                 results = query.all()
                 
@@ -159,4 +146,6 @@ class DailyKlineLoader(BaseLoader):
         except Exception as e:
             logger.error(f"读取日K线数据失败: {e}")
             raise LoaderException(f"读取日K线数据失败: {e}") from e
+
+
 

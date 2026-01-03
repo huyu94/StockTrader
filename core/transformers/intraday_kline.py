@@ -26,18 +26,25 @@ class IntradayKlineTransformer(BaseTransformer):
     - 日期时间格式标准化
     """
     
-    def transform(self, data: pd.DataFrame, params: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def transform(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """
         转换分时K线数据
         
         Args:
             data: 原始分时K线数据（可能是 akshare 返回的原始格式）
-            params: 转换参数（可选）
+            **kwargs: 转换参数（可选）
                 - ts_codes: List[str] 或 str, 股票代码列表（可选，用于过滤）
                 - trade_date: str, 交易日期 (YYYY-MM-DD)（可选，如果不提供则使用当前日期）
             
         Returns:
-            pd.DataFrame: 转换后的分时K线数据，包含标准化后的字段
+            pd.DataFrame: 转换后的分时K线数据，包含标准化后的字段：
+                - ts_code: 股票代码
+                - trade_date: 交易日期 (YYYY-MM-DD)
+                - time: 时间 (HH:MM:SS)
+                - datetime: 完整时间戳 (YYYY-MM-DD HH:MM:SS)（可选）
+                - price: 价格（元，精确到分）
+                - volume: 成交量（手）
+                - amount: 成交额（元，精确到分）
             
         Raises:
             TransformerException: 转换失败时抛出异常
@@ -46,11 +53,18 @@ class IntradayKlineTransformer(BaseTransformer):
             logger.warning("输入数据为空，返回空 DataFrame")
             return pd.DataFrame()
         
-        logger.info(f"开始转换分时K线数据，数据量: {len(data)}")
+        logger.debug(f"开始转换分时K线数据，数据量: {len(data)}")
         
         try:
             # 复制数据，避免修改原始数据
             df = data.copy()
+            
+            # 构建 params 字典（兼容旧接口）
+            params = {}
+            if 'ts_codes' in kwargs:
+                params['ts_codes'] = kwargs['ts_codes']
+            if 'trade_date' in kwargs:
+                params['trade_date'] = kwargs['trade_date']
             
             # 检查是否是 akshare 原始数据格式（包含中文列名）
             if '代码' in df.columns or '最新价' in df.columns:
@@ -120,11 +134,20 @@ class IntradayKlineTransformer(BaseTransformer):
             if missing_columns:
                 raise TransformerException(f"缺少必需的列: {missing_columns}")
             
-            # 9. 按股票代码、日期、时间排序
+            # 9. 确保输出列的顺序和完整性（符合数据库模型）
+            output_columns = ['ts_code', 'trade_date', 'time', 'datetime', 'price', 'volume', 'amount']
+            # 只选择存在的列
+            existing_columns = [col for col in output_columns if col in df.columns]
+            df = df[existing_columns].copy()
+            
+            # 10. 按股票代码、日期、时间排序
             if 'ts_code' in df.columns and 'trade_date' in df.columns and 'time' in df.columns:
                 df = df.sort_values(['ts_code', 'trade_date', 'time']).reset_index(drop=True)
             
-            logger.info(f"转换完成，最终数据量: {len(df)} 条")
+            # 11. 将 nan 值转换为 None，确保数据库兼容性
+            df = df.where(pd.notna(df), None)
+            
+            logger.debug(f"转换完成，最终数据量: {len(df)} 条")
             return df
             
         except Exception as e:

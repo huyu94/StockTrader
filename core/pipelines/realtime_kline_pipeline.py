@@ -95,13 +95,13 @@ class RealtimeKlinePipeline(BasePipeline):
             
             # 2. Transform - 转换数据
             logger.info("\n步骤 2: 转换数据为标准格式...")
-            transform_params = {}
+            transform_kwargs = {}
             if ts_codes is not None:
-                transform_params["ts_codes"] = ts_codes
+                transform_kwargs["ts_codes"] = ts_codes
             if "trade_date" in kwargs:
-                transform_params["trade_date"] = kwargs["trade_date"]
+                transform_kwargs["trade_date"] = kwargs["trade_date"]
             
-            clean_data = self.transformer.transform(raw_data, transform_params)
+            clean_data = self.transformer.transform(raw_data, **transform_kwargs)
             
             if clean_data is None or clean_data.empty:
                 logger.warning("转换后数据为空")

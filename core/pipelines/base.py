@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
 
+from core.collectors import IntradayKlineCollector
 from core.collectors.base import BaseCollector
 from core.transformers.base import BaseTransformer
 from core.loaders.base import BaseLoader
@@ -24,11 +25,13 @@ from core.transformers.basic_info import BasicInfoTransformer
 from core.transformers.trade_calendar import TradeCalendarTransformer
 from core.transformers.daily_kline import DailyKlineTransformer
 from core.transformers.adj_factor import AdjFactorTransformer
+from core.transformers.intraday_kline import IntradayKlineTransformer
 
 from core.loaders.basic_info import BasicInfoLoader
 from core.loaders.trade_calendar import TradeCalendarLoader
 from core.loaders.daily_kline import DailyKlineLoader
 from core.loaders.adj_factor import AdjFactorLoader
+from core.loaders.intraday_kline import IntradayKlineLoader
 
 
 class BasePipeline(ABC):
@@ -74,3 +77,7 @@ class BasePipeline(ABC):
         self.adj_factor_loader = AdjFactorLoader()
 
         self.ex_date_collector = ExDateCollector()
+
+        self.intraday_kline_collector = IntradayKlineCollector()
+        self.intraday_kline_transformer = IntradayKlineTransformer()
+        self.intraday_kline_loader = IntradayKlineLoader()

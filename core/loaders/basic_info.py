@@ -29,7 +29,6 @@ class BasicInfoLoader(BaseLoader):
         Args:
             config: 配置字典，包含：
                 - table: 表名（默认 "basic_info"）
-                - load_strategy: 加载策略（append/replace/upsert，默认 upsert）
                 - batch_size: 批量大小（默认 1000）
                 - upsert_keys: upsert 的键（默认 ['ts_code']）
         """
@@ -52,12 +51,13 @@ class BasicInfoLoader(BaseLoader):
         """获取必需的数据列"""
         return ['ts_code', 'symbol', 'name']
     
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载股票基本信息数据到数据库
         
         Args:
             data: 待加载的股票基本信息数据 DataFrame
+            strategy: 加载策略（append/replace/upsert）
             
         Raises:
             LoaderException: 加载失败时抛出异常
@@ -76,14 +76,14 @@ class BasicInfoLoader(BaseLoader):
                 data_copy['updated_at'] = today
             
             # 根据加载策略选择加载方式
-            if self.load_strategy == self.LOAD_STRATEGY_APPEND:
+            if strategy == self.LOAD_STRATEGY_APPEND:
                 self._load_append(data_copy)
-            elif self.load_strategy == self.LOAD_STRATEGY_REPLACE:
+            elif strategy == self.LOAD_STRATEGY_REPLACE:
                 self._load_replace(data_copy)
-            elif self.load_strategy == self.LOAD_STRATEGY_UPSERT:
+            elif strategy == self.LOAD_STRATEGY_UPSERT:
                 self._load_upsert(data_copy)
             else:
-                raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
+                raise LoaderException(f"不支持的加载策略: {strategy}")
             
             logger.info(f"股票基本信息数据加载完成，表: {self.table}")
             
@@ -91,3 +91,17 @@ class BasicInfoLoader(BaseLoader):
             logger.error(f"加载股票基本信息数据失败: {e}")
             raise LoaderException(f"加载股票基本信息数据失败: {e}") from e
 
+
+    def get_all_ts_codes(self) -> List[str]:
+        """
+        获取数据库中所有的股票代码列表
+        """
+        try:
+            with self._get_session() as session:
+                query = session.query(BasicInfoORM.ts_code).distinct()
+                results = query.all()
+                return [result.ts_code for result in results]
+
+        except Exception as e:
+            logger.error(f"获取股票代码列表失败: {e}")
+            raise LoaderException(f"获取股票代码列表失败: {e}") from e

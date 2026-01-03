@@ -43,14 +43,13 @@ class BaseLoader(ABC):
         初始化加载器
         
         Args:
-            config: 加载器配置字典，包含表名、加载策略、批量大小等配置
+            config: 加载器配置字典，包含表名、批量大小等配置
         """
         self.config = config or {}
         self.table = self.config.get("table", "")
-        self.load_strategy = self.config.get("load_strategy", self.LOAD_STRATEGY_UPSERT)
         self.batch_size = self.config.get("batch_size", 1000)
         self.upsert_keys = self.config.get("upsert_keys", [])
-        logger.debug(f"初始化加载器: {self.__class__.__name__}, 表: {self.table}, 策略: {self.load_strategy}")
+        logger.debug(f"初始化加载器: {self.__class__.__name__}, 表: {self.table}")
     
     @classmethod
     def _get_engine(cls):
@@ -106,12 +105,13 @@ class BaseLoader(ABC):
             session.close()
     
     @abstractmethod
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载数据到数据库的核心方法
         
         Args:
             data: 待加载的数据 DataFrame
+            strategy: 加载策略，必须是 LOAD_STRATEGY_APPEND、LOAD_STRATEGY_REPLACE 或 LOAD_STRATEGY_UPSERT 之一
             
         Raises:
             LoaderException: 当加载失败时抛出异常

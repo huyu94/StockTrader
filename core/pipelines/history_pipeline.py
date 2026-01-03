@@ -14,6 +14,8 @@ import sys
 
 from tqdm import tqdm
 
+from core.calculators.qfq_calculator import QFQCalculator
+from core.loaders import adj_factor
 from core.pipelines.base import BasePipeline
 from core.collectors.base import BaseCollector
 from core.transformers.base import BaseTransformer
@@ -56,10 +58,6 @@ class HistoryPipeline(BasePipeline):
         """
         初始化历史数据补全流水线
         """
-
-        
-
-
         self.write_executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="write_thread")
         self.pending_writes = []
         self._shutdown_requested = False
@@ -135,6 +133,7 @@ class HistoryPipeline(BasePipeline):
             update_trade_calendar = kwargs.get("update_trade_calendar", True)
             update_daily_kline = kwargs.get("update_daily_kline", True)
             update_adj_factor = kwargs.get("update_adj_factor", True)
+            update_qfq_data = kwargs.get("update_qfq_data", True)
             
             if update_basic_info:
                 logger.info("-" * 60)
@@ -163,6 +162,12 @@ class HistoryPipeline(BasePipeline):
                 logger.info("-" * 60)
                 self._update_adj_factor(start_date_api, end_date_api)
             
+            if update_qfq_data:
+                logger.info("-" * 60)
+                logger.info("步骤 5: 更新前复权数据 (qfq_data)")
+                logger.info("-" * 60)
+                self._update_qfq_data()
+
 
             logger.info("等待写入完成...")
             self._wait_write_task_finish()
@@ -213,7 +218,7 @@ class HistoryPipeline(BasePipeline):
             
             # 3. Load - 加载数据
             logger.info("加载股票基本信息到数据库...")
-            self.basic_info_loader.load(clean_data)
+            self.basic_info_loader.load(clean_data, strategy=BaseLoader.LOAD_STRATEGY_UPSERT)
             logger.info(f"✓ 加载完成，共 {len(clean_data)} 条记录")
             
         except Exception as e:
@@ -254,7 +259,7 @@ class HistoryPipeline(BasePipeline):
             
             # 3. Load - 加载数据
             logger.info("加载交易日历到数据库...")
-            self.trade_calendar_loader.load(clean_data)
+            self.trade_calendar_loader.load(clean_data, strategy=BaseLoader.LOAD_STRATEGY_UPSERT)
             logger.info(f"✓ 加载完成，共 {len(clean_data)} 条记录")
             
         except Exception as e:
@@ -293,7 +298,7 @@ class HistoryPipeline(BasePipeline):
                         pbar.update(1)
                         continue
                     
-                    future = self.write_executor.submit(self.daily_kline_loader.load, transformed_data)
+                    future = self.write_executor.submit(self.daily_kline_loader.load, transformed_data, BaseLoader.LOAD_STRATEGY_APPEND)
                     self.pending_writes.append((future, f"日期: {trade_date_str} daily kline数据写入"))
                     pbar.update(1)
         except Exception as e:
@@ -332,7 +337,7 @@ class HistoryPipeline(BasePipeline):
                         if transformed_data is None or transformed_data.empty:
                             pbar.update(1)
                             continue
-                        future = self.write_executor.submit(self.adj_factor_loader.load, transformed_data)
+                        future = self.write_executor.submit(self.adj_factor_loader.load, transformed_data, BaseLoader.LOAD_STRATEGY_UPSERT)
                         self.pending_writes.append((future, f"股票: {ts_code} adj factor数据写入"))
                         pbar.update(1)
                     except Exception as e:
@@ -340,6 +345,32 @@ class HistoryPipeline(BasePipeline):
                         pbar.update(1)
         except Exception as e:
             logger.error(f"更新复权因子失败: {e}")
+            raise
+
+
+    def _update_qfq_data(
+        self,
+    ) -> None:
+        ts_codes = self.basic_info_loader.get_all_ts_codes()
+        qfq_calculator = QFQCalculator()
+        try:
+            with tqdm(total=len(ts_codes), desc="更新前复权数据") as pbar:
+                for ts_code in ts_codes:
+                    adj_factor_df = self.adj_factor_loader.read(ts_code=ts_code)
+                    daily_kline_df = self.daily_kline_loader.read(ts_code=ts_code)
+                    if daily_kline_df is None or daily_kline_df.empty:
+                        logger.warning(f"股票 {ts_code} 没有日K线数据")
+                        continue
+                    qfq_calculator_df = qfq_calculator.calculate(daily_kline_df, adj_factor_df)
+                    if qfq_calculator_df is None or qfq_calculator_df.empty:
+                        logger.warning(f"股票 {ts_code} 没有前复权数据")
+                        continue
+                    
+                    future = self.write_executor.submit(self.daily_kline_loader.load, qfq_calculator_df, BaseLoader.LOAD_STRATEGY_UPSERT)
+                    self.pending_writes.append((future, f"股票: {ts_code} qfq数据写入"))
+                    pbar.update(1)
+        except Exception as e:
+            logger.error(f"更新前复权数据失败: {e}")
             raise
 
 

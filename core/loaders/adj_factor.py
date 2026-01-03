@@ -4,7 +4,7 @@
 负责将处理后的复权因子数据持久化到数据库
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
 
@@ -28,7 +28,6 @@ class AdjFactorLoader(BaseLoader):
         Args:
             config: 配置字典，包含：
                 - table: 表名（默认 "adj_factor"）
-                - load_strategy: 加载策略（append/replace/upsert，默认 upsert）
                 - batch_size: 批量大小（默认 1000）
                 - upsert_keys: upsert 的键（默认 ['ts_code', 'trade_date']）
         """
@@ -51,12 +50,13 @@ class AdjFactorLoader(BaseLoader):
         """获取必需的数据列"""
         return ['ts_code', 'trade_date', 'adj_factor']
     
-    def load(self, data: pd.DataFrame) -> None:
+    def load(self, data: pd.DataFrame, strategy: str) -> None:
         """
         加载复权因子数据到数据库
         
         Args:
             data: 待加载的复权因子数据 DataFrame
+            strategy: 加载策略（append/replace/upsert）
             
         Raises:
             LoaderException: 加载失败时抛出异常
@@ -65,31 +65,31 @@ class AdjFactorLoader(BaseLoader):
             logger.warning("复权因子数据为空，跳过加载")
             return
         
-        
         try:
             # 根据加载策略选择加载方式
-            if self.load_strategy == self.LOAD_STRATEGY_APPEND:
+            if strategy == self.LOAD_STRATEGY_APPEND:
                 self._load_append(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_REPLACE:
+            elif strategy == self.LOAD_STRATEGY_REPLACE:
                 self._load_replace(data)
-            elif self.load_strategy == self.LOAD_STRATEGY_UPSERT:
+            elif strategy == self.LOAD_STRATEGY_UPSERT:
                 self._load_upsert(data)
             else:
-                raise LoaderException(f"不支持的加载策略: {self.load_strategy}")
+                raise LoaderException(f"不支持的加载策略: {strategy}")
             
         except Exception as e:
             logger.error(f"加载复权因子数据失败: {e}")
             raise LoaderException(f"加载复权因子数据失败: {e}") from e
     
+
     def read(
         self,
-        ts_codes: Optional[Union[str, List[str]]] = None
+        ts_code: Optional[str] = None
     ) -> pd.DataFrame:
         """
         从数据库读取复权因子数据（读取所有历史除权除息日的复权因子）
         
         Args:
-            ts_codes: 股票代码，可以是单个字符串或字符串列表（可选，如果不提供则读取所有股票）
+            ts_code: 股票代码（可选，如果不提供则读取所有股票）
             
         Returns:
             pd.DataFrame: 复权因子数据，包含所有历史除权除息日的数据
@@ -101,12 +101,8 @@ class AdjFactorLoader(BaseLoader):
                 query = session.query(model_class)
                 
                 # 构建过滤条件（只按股票代码过滤，不按日期过滤）
-                if ts_codes is not None:
-                    if isinstance(ts_codes, str):
-                        ts_codes_list = [ts_codes]
-                    else:
-                        ts_codes_list = ts_codes
-                    query = query.filter(model_class.ts_code.in_(ts_codes_list))
+                if ts_code is not None:
+                    query = query.filter(model_class.ts_code == ts_code)
                 
                 # 排序（按股票代码和交易日期）
                 query = query.order_by(model_class.ts_code, model_class.trade_date)
@@ -117,23 +113,8 @@ class AdjFactorLoader(BaseLoader):
                     logger.info("数据库中未找到复权因子数据")
                     return pd.DataFrame()
                 
-                # 转换为DataFrame
-                def _model_to_dict(row):
-                    """将ORM模型实例转换为字典"""
-                    from sqlalchemy import DECIMAL
-                    result = {}
-                    for column in row.__table__.columns:
-                        value = getattr(row, column.name)
-                        # 处理日期类型
-                        if value is not None and hasattr(value, 'strftime'):
-                            value = DateHelper.parse_to_str(value)
-                        # 处理 DECIMAL 类型
-                        elif isinstance(value, DECIMAL):
-                            value = float(value)
-                        result[column.name] = value
-                    return result
-                
-                data = [_model_to_dict(row) for row in results]
+                # 转换为DataFrame（使用 _model_to_dict 处理 DECIMAL 类型转换）
+                data = [AdjFactorORM._model_to_dict(row) for row in results]
                 df = pd.DataFrame(data)
                 
                 # 转换trade_date为datetime（如果存在）
@@ -146,4 +127,3 @@ class AdjFactorLoader(BaseLoader):
         except Exception as e:
             logger.error(f"读取复权因子数据失败: {e}")
             raise LoaderException(f"读取复权因子数据失败: {e}") from e
-
