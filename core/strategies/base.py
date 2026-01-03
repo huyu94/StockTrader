@@ -75,18 +75,11 @@ class BaseStrategy(ABC):
         Returns:
             Union[List[str], pd.DataFrame]: 筛选结果
         """
-        logger.info(f"策略 {self.name} 开始运行")
-        
         # 计算指标
         df_with_indicators = self.calculate_indicators(df)
         
         # 筛选股票
         result = self.filter_stocks(df_with_indicators)
-        
-        if isinstance(result, list):
-            logger.info(f"策略 {self.name} 筛选出 {len(result)} 只股票")
-        elif isinstance(result, pd.DataFrame):
-            logger.info(f"策略 {self.name} 筛选出 {len(result)} 条记录")
         
         return result
 

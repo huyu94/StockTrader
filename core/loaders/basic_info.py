@@ -4,7 +4,7 @@
 负责将处理后的股票基本信息数据持久化到数据库
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
 from datetime import datetime
@@ -105,3 +105,49 @@ class BasicInfoLoader(BaseLoader):
         except Exception as e:
             logger.error(f"获取股票代码列表失败: {e}")
             raise LoaderException(f"获取股票代码列表失败: {e}") from e
+    
+    def read(
+        self,
+        ts_codes: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        从数据库读取股票基本信息
+        
+        Args:
+            ts_codes: 股票代码列表（可选，如果不提供则读取所有股票）
+        
+        Returns:
+            pd.DataFrame: 股票基本信息数据，包含 ts_code, name 等列
+        """
+        try:
+            with self._get_session() as session:
+                query = session.query(BasicInfoORM)
+                
+                # 如果指定了股票代码，进行过滤
+                if ts_codes is not None and len(ts_codes) > 0:
+                    query = query.filter(BasicInfoORM.ts_code.in_(ts_codes))
+                
+                results = query.all()
+                
+                if not results:
+                    return pd.DataFrame()
+                
+                # 转换为DataFrame
+                data = []
+                for row in results:
+                    row_dict = {
+                        'ts_code': row.ts_code,
+                        'name': row.name,
+                        'symbol': row.symbol if hasattr(row, 'symbol') else None,
+                        'area': row.area if hasattr(row, 'area') else None,
+                        'industry': row.industry if hasattr(row, 'industry') else None,
+                        'market': row.market if hasattr(row, 'market') else None,
+                    }
+                    data.append(row_dict)
+                
+                df = pd.DataFrame(data)
+                return df
+                
+        except Exception as e:
+            logger.error(f"读取股票基本信息失败: {e}")
+            raise LoaderException(f"读取股票基本信息失败: {e}") from e

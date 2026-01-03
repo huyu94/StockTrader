@@ -231,7 +231,6 @@ class KDJStrategy(BaseStrategy):
             
             # 检查数据量是否足够
             if len(group_df) < min_period:
-                logger.debug(f"{ts_code}: 数据不足，需要至少{min_period}个交易日，当前只有{len(group_df)}个")
                 continue
             
             # 获取最新交易日的数据
@@ -239,15 +238,12 @@ class KDJStrategy(BaseStrategy):
             
             # 检查数据有效性
             if pd.isna(latest_row.get('kdj_j')):
-                logger.debug(f"{ts_code}: KDJ的J值无效")
                 continue
             
             if pd.isna(latest_row.get('vol')) or pd.isna(latest_row.get('vol_max_20')):
-                logger.debug(f"{ts_code}: 成交量数据无效")
                 continue
             
             if pd.isna(latest_row.get('ma20')) or pd.isna(latest_row.get('ma30')) or pd.isna(latest_row.get('ma60')):
-                logger.debug(f"{ts_code}: 均线数据无效")
                 continue
             
             # 条件1：KDJ的J值 <= 阈值（超卖信号）
@@ -282,12 +278,7 @@ class KDJStrategy(BaseStrategy):
                 elif near_ma60:
                     ma_info.append(f"接近MA60({ma60:.2f})")
                 
-                logger.info(
-                    f"{ts_code}: ✓ 符合少妇战法条件 - "
-                    f"J值={j_value:.2f} <= {self.j_threshold}, "
-                    f"成交量比例={vol_ratio:.2%} < 50%, "
-                    f"收盘价={close_price:.2f}, " + ", ".join(ma_info)
-                )
+                # 符合条件的股票信息会在最终结果中显示，这里不输出日志
                 
                 # 添加到结果中
                 result_list.append({

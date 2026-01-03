@@ -41,12 +41,12 @@ def main():
         )
         
         # 创建策略流水线
-        # 配置多进程：如果处理大量股票，可以启用多进程加速
+        # 注意：新架构默认启用多进程，每只股票一个进程完成完整流程
         pipeline = StrategyPipeline(
             config={
                 'output_dir': 'output',
                 'output_format': 'csv',
-                'use_multiprocessing': True,  # 启用多进程并行处理
+                'use_multiprocessing': True,  # 默认启用多进程（可设置为False禁用）
                 'max_workers': None  # None表示使用CPU核心数，也可以指定具体数字如4
             }
         )
