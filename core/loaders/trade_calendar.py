@@ -4,7 +4,7 @@
 负责将处理后的交易日历数据持久化到数据库
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from loguru import logger
 
@@ -90,4 +90,77 @@ class TradeCalendarLoader(BaseLoader):
         except Exception as e:
             logger.error(f"加载交易日历数据失败: {e}")
             raise LoaderException(f"加载交易日历数据失败: {e}") from e
+    
+    def read(
+        self,
+        cal_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        从数据库读取交易日历数据
+        
+        Args:
+            cal_date: 日历日期 (YYYY-MM-DD 或 YYYYMMDD)（可选，精确匹配）
+            start_date: 开始日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
+            end_date: 结束日期 (YYYY-MM-DD 或 YYYYMMDD)（可选）
+            
+        Returns:
+            pd.DataFrame: 交易日历数据
+        """
+        from utils.date_helper import DateHelper
+        
+        try:
+            model_class = self._get_orm_model()
+            
+            with self._get_session() as session:
+                query = session.query(model_class)
+                
+                # 构建过滤条件
+                if cal_date is not None:
+                    cal_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(cal_date)
+                    cal_date_obj = DateHelper.parse_to_date(cal_date_normalized)
+                    query = query.filter(model_class.cal_date == cal_date_obj)
+                
+                if start_date is not None:
+                    start_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(start_date)
+                    start_date_obj = DateHelper.parse_to_date(start_date_normalized)
+                    query = query.filter(model_class.cal_date >= start_date_obj)
+                
+                if end_date is not None:
+                    end_date_normalized = DateHelper.normalize_to_yyyy_mm_dd(end_date)
+                    end_date_obj = DateHelper.parse_to_date(end_date_normalized)
+                    query = query.filter(model_class.cal_date <= end_date_obj)
+                
+                # 排序
+                query = query.order_by(model_class.cal_date)
+                
+                results = query.all()
+                
+                if not results:
+                    return pd.DataFrame()
+                
+                # 转换为DataFrame
+                data = []
+                for row in results:
+                    row_dict = {}
+                    for column in model_class.__table__.columns:
+                        value = getattr(row, column.name)
+                        # 处理日期类型
+                        if value is not None and hasattr(value, 'strftime'):
+                            value = DateHelper.parse_to_str(value)
+                        # 处理布尔类型
+                        elif isinstance(value, bool):
+                            value = 1 if value else 0
+                        row_dict[column.name] = value
+                    data.append(row_dict)
+                
+                df = pd.DataFrame(data)
+                
+                logger.debug(f"从数据库读取到 {len(df)} 条交易日历数据")
+                return df
+                
+        except Exception as e:
+            logger.error(f"读取交易日历数据失败: {e}")
+            raise LoaderException(f"读取交易日历数据失败: {e}") from e
 

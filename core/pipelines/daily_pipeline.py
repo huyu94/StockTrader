@@ -41,6 +41,8 @@ class DailyPipeline(BasePipeline):
             **kwargs: 其他参数
         """
         trade_date = DateHelper.today()
+        
+
 
         # 获取更新选项
         update_basic_info = kwargs.get("update_basic_info", True)
@@ -62,6 +64,11 @@ class DailyPipeline(BasePipeline):
             logger.info("步骤 2: 更新交易日历 (trade_calendar)")
             logger.info("-" * 60)
             self._update_trade_calendar(trade_date)
+
+        # 检查是否为交易日
+        if not self._is_trading_day(trade_date):
+            logger.info(f"今日 {trade_date} 不是交易日，跳过执行")
+            return
         
         # 3. 更新 daily_kline（日K线数据）
         if update_daily_kline:
@@ -252,3 +259,37 @@ class DailyPipeline(BasePipeline):
         except Exception as e:
             logger.error(f"更新实时数据失败，日期:{trade_date}，错误:{e}")
             raise
+    
+    def _is_trading_day(self, trade_date: str) -> bool:
+        """
+        检查指定日期是否为交易日
+        
+        Args:
+            trade_date: 交易日期 (YYYY-MM-DD)
+            
+        Returns:
+            bool: 是否为交易日
+        """
+        try:
+            # 查询交易日历
+            calendar_df = self.trade_calendar_loader.read(cal_date=trade_date)
+            
+            if calendar_df is None or calendar_df.empty:
+                logger.warning(f"无法查询交易日历，日期: {trade_date}，假设为交易日继续执行")
+                return True  # 容错处理：如果查询失败，假设是交易日继续执行
+            
+            # 检查上交所或深交所是否开市
+            # 只要有一个交易所开市，就认为是交易日
+            is_trading = False
+            if 'sse_open' in calendar_df.columns:
+                sse_open = calendar_df['sse_open'].iloc[0]
+                is_trading = is_trading or (sse_open == 1 or sse_open is True)
+            if 'szse_open' in calendar_df.columns:
+                szse_open = calendar_df['szse_open'].iloc[0]
+                is_trading = is_trading or (szse_open == 1 or szse_open is True)
+            
+            return is_trading
+            
+        except Exception as e:
+            logger.warning(f"检查交易日失败，日期: {trade_date}，错误: {e}，假设为交易日继续执行")
+            return True  # 容错处理：如果检查失败，假设是交易日继续执行
