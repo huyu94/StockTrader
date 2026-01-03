@@ -146,3 +146,16 @@ class IntradayKlineORM(Base):
         Index('idx_intraday_datetime', 'datetime'),
         {'comment': '分时K线数据表'}
     )
+    
+    @staticmethod
+    def _model_to_dict(model_instance) -> dict:
+        """将ORM模型实例转换为字典"""
+        result = {}
+        for column in model_instance.__table__.columns:
+            value = getattr(model_instance, column.name)
+            if value is not None and hasattr(value, 'strftime'):
+                value = DateHelper.parse_to_str(value)
+            elif isinstance(value, DECIMAL):
+                value = float(value)
+            result[column.name] = value
+        return result

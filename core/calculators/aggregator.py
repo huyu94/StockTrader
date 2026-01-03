@@ -133,8 +133,9 @@ class Aggregator:
         
         # 确保日期格式标准化
         if 'trade_date' in result_df.columns:
+            # 使用 parse_to_str 处理 datetime、date 和字符串类型
             result_df['trade_date'] = result_df['trade_date'].apply(
-                lambda x: DateHelper.normalize_to_yyyy_mm_dd(str(x)) if pd.notna(x) else None
+                lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
             )
         
         # 按股票代码和日期排序
@@ -228,8 +229,9 @@ class Aggregator:
         
         # 确保日期格式标准化
         if 'trade_date' in result_df.columns:
+            # 使用 parse_to_str 处理 datetime、date 和字符串类型
             result_df['trade_date'] = result_df['trade_date'].apply(
-                lambda x: DateHelper.normalize_to_yyyy_mm_dd(str(x)) if pd.notna(x) else None
+                lambda x: DateHelper.parse_to_str(x) if pd.notna(x) else None
             )
         
         logger.info(f"自定义规则聚合完成，共生成 {len(result_df)} 条日K线数据")
