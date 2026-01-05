@@ -32,7 +32,7 @@ from core.loaders.trade_calendar import TradeCalendarLoader
 from core.loaders.daily_kline import DailyKlineLoader
 from core.loaders.adj_factor import AdjFactorLoader
 from core.loaders.intraday_kline import IntradayKlineLoader
-
+from core.calculators.qfq_calculator import QFQCalculator
 
 class BasePipeline(ABC):
     """
@@ -81,3 +81,5 @@ class BasePipeline(ABC):
         self.intraday_kline_collector = IntradayKlineCollector()
         self.intraday_kline_transformer = IntradayKlineTransformer()
         self.intraday_kline_loader = IntradayKlineLoader()
+
+        self.qfq_calculator = QFQCalculator()

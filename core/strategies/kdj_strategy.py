@@ -85,6 +85,8 @@ class KDJStrategy(BaseStrategy):
             logger.warning("数据为空，无法计算指标")
             return df
         
+        logger.debug(f"[DEBUG] calculate_indicators: 输入数据 {len(df)} 条，列: {list(df.columns)}")
+        
         df_copy = df.copy()
         
         # 确保数据按日期排序
@@ -96,6 +98,7 @@ class KDJStrategy(BaseStrategy):
         
         for ts_code, group_df in df_copy.groupby('ts_code'):
             group_df = group_df.sort_values('trade_date').reset_index(drop=True)
+            logger.debug(f"[DEBUG] calculate_indicators: 处理股票 {ts_code}，数据 {len(group_df)} 条")
             
             # 确保数值列为float类型（处理数据库返回的Decimal类型）
             numeric_columns = ['open', 'high', 'low', 'close', 'vol', 'amount']
@@ -103,18 +106,54 @@ class KDJStrategy(BaseStrategy):
                 if col in group_df.columns:
                     group_df[col] = pd.to_numeric(group_df[col], errors='coerce').astype(float)
             
+            # 检查 close 列（聚合器已经将close_qfq复制到close，并删除了_qfq后缀列）
+            if 'close' not in group_df.columns:
+                logger.error(f"[DEBUG] calculate_indicators: {ts_code} 缺少 close 列，列名: {list(group_df.columns)}")
+                continue
+            
+            close_values = group_df['close'].values
+            close_nan_count = pd.isna(close_values).sum()
+            logger.debug(f"[DEBUG] calculate_indicators: {ts_code} close列检查 - 总数={len(close_values)}, NaN数量={close_nan_count}, 前5个值={close_values[:5] if len(close_values) >= 5 else close_values}")
+            
             # 1. 计算KDJ指标
             group_df = self.indicator_calculator.calculate_kdj(
                 group_df, 
                 period=self.kdj_period
             )
+            logger.debug(f"[DEBUG] calculate_indicators: {ts_code} KDJ计算后，最新行kdj_j={group_df.iloc[-1].get('kdj_j', 'N/A') if len(group_df) > 0 else 'N/A'}")
             
             # 2. 计算均线指标（MA20, MA30, MA60）
+            # 检查计算前的 close 列
+            close_before_ma = group_df['close'].values
+            logger.debug(f"[DEBUG] calculate_indicators: {ts_code} MA计算前，close列前5个值={close_before_ma[:5] if len(close_before_ma) >= 5 else close_before_ma}")
+            
             group_df = self.indicator_calculator.calculate_ma(
                 group_df, 
                 periods=[20, 30, 60], 
                 column='close'
             )
+            
+            # 检查计算后的均线值
+            latest_row = group_df.iloc[-1] if len(group_df) > 0 else None
+            if latest_row is not None:
+                ma20_val = latest_row.get('ma20', 'N/A')
+                ma30_val = latest_row.get('ma30', 'N/A')
+                ma60_val = latest_row.get('ma60', 'N/A')
+                latest_close = latest_row.get('close', 'N/A')
+                latest_date = latest_row.get('trade_date', 'N/A')
+                logger.debug(f"[DEBUG] calculate_indicators: {ts_code} MA计算后，最新行(日期={latest_date}) - close={latest_close}, ma20={ma20_val}, ma30={ma30_val}, ma60={ma60_val}")
+                
+                # 如果都是NaN，检查中间行的值和最后几行的close值
+                if pd.isna(ma20_val) and pd.isna(ma30_val) and pd.isna(ma60_val):
+                    # 检查最后几行的close值
+                    logger.debug(f"[DEBUG] calculate_indicators: {ts_code} 最后5行close值: {group_df['close'].tail(5).tolist()}")
+                    logger.debug(f"[DEBUG] calculate_indicators: {ts_code} 最后5行close是否为NaN: {pd.isna(group_df['close'].tail(5)).tolist()}")
+                    
+                    # 检查中间行（应该有值）
+                    if len(group_df) >= 60:
+                        mid_row = group_df.iloc[60]  # 第61行应该有ma60的值
+                        logger.debug(f"[DEBUG] calculate_indicators: {ts_code} 第61行MA值 - ma20={mid_row.get('ma20', 'N/A')}, ma30={mid_row.get('ma30', 'N/A')}, ma60={mid_row.get('ma60', 'N/A')}")
+                        logger.debug(f"[DEBUG] calculate_indicators: {ts_code} 第61行close值={mid_row.get('close', 'N/A')}")
             
             # 3. 计算成交量相关指标
             # 计算前N日的成交量最大值
@@ -224,6 +263,15 @@ class KDJStrategy(BaseStrategy):
         min_period = max(60, self.vol_period, self.kdj_period)
         
         result_list = []
+        debug_stats = {
+            'total_stocks': len(df.groupby('ts_code')) if 'ts_code' in df.columns else 0,
+            'insufficient_data': 0,
+            'missing_indicators': 0,
+            'condition1_fail': 0,
+            'condition2_fail': 0,
+            'condition3_fail': 0,
+            'passed': 0
+        }
         
         # 按股票代码分组处理
         for ts_code, group_df in df.groupby('ts_code'):
@@ -231,19 +279,37 @@ class KDJStrategy(BaseStrategy):
             
             # 检查数据量是否足够
             if len(group_df) < min_period:
+                debug_stats['insufficient_data'] += 1
+                logger.debug(f"[DEBUG] 股票 {ts_code}: 数据量不足，需要至少 {min_period} 条，实际 {len(group_df)} 条")
                 continue
             
             # 获取最新交易日的数据
             latest_row = group_df.iloc[-1]
+            latest_date = latest_row.get('trade_date', 'Unknown')
             
-            # 检查数据有效性
+            # 检查数据有效性 - 详细记录缺失的指标
+            missing_indicators = []
             if pd.isna(latest_row.get('kdj_j')):
-                continue
+                missing_indicators.append('kdj_j')
+            if pd.isna(latest_row.get('vol')):
+                missing_indicators.append('vol')
+            if pd.isna(latest_row.get('vol_max_20')):
+                missing_indicators.append('vol_max_20')
+            if pd.isna(latest_row.get('ma20')):
+                missing_indicators.append('ma20')
+            if pd.isna(latest_row.get('ma30')):
+                missing_indicators.append('ma30')
+            if pd.isna(latest_row.get('ma60')):
+                missing_indicators.append('ma60')
             
-            if pd.isna(latest_row.get('vol')) or pd.isna(latest_row.get('vol_max_20')):
-                continue
-            
-            if pd.isna(latest_row.get('ma20')) or pd.isna(latest_row.get('ma30')) or pd.isna(latest_row.get('ma60')):
+            if missing_indicators:
+                debug_stats['missing_indicators'] += 1
+                logger.debug(f"[DEBUG] 股票 {ts_code} ({latest_date}): 指标缺失 - {', '.join(missing_indicators)}")
+                logger.debug(f"[DEBUG] 股票 {ts_code}: 数据条数={len(group_df)}, 最新日期={latest_date}")
+                logger.debug(f"[DEBUG] 股票 {ts_code}: 数据列={list(group_df.columns)}")
+                # 检查前几行数据，看看指标是否计算了
+                if len(group_df) > 0:
+                    logger.debug(f"[DEBUG] 股票 {ts_code}: 前3行数据:\n{group_df[['trade_date', 'close', 'ma20', 'ma30', 'ma60', 'kdj_j']].head(3).to_string()}")
                 continue
             
             # 条件1：KDJ的J值 <= 阈值（超卖信号）
@@ -258,8 +324,20 @@ class KDJStrategy(BaseStrategy):
             near_ma = latest_row.get('near_ma', False)
             condition3 = bool(near_ma) if not pd.isna(near_ma) else False
             
+            # 记录条件检查结果
+            if not condition1:
+                debug_stats['condition1_fail'] += 1
+                logger.debug(f"[DEBUG] 股票 {ts_code} ({latest_date}): 条件1失败 - J值={j_value:.2f} > 阈值={self.j_threshold}")
+            if not condition2:
+                debug_stats['condition2_fail'] += 1
+                logger.debug(f"[DEBUG] 股票 {ts_code} ({latest_date}): 条件2失败 - 成交量比={vol_ratio:.2f} >= 0.5")
+            if not condition3:
+                debug_stats['condition3_fail'] += 1
+                logger.debug(f"[DEBUG] 股票 {ts_code} ({latest_date}): 条件3失败 - 未接近均线")
+            
             # 三个条件都必须满足
             if condition1 and condition2 and condition3:
+                debug_stats['passed'] += 1
                 # 获取详细信息用于输出
                 close_price = latest_row.get('close', 0)
                 ma20 = latest_row.get('ma20', 0)
@@ -292,6 +370,19 @@ class KDJStrategy(BaseStrategy):
                     'ma60': ma60,
                     'near_ma': ', '.join(ma_info) if ma_info else 'None'
                 })
+        
+        # 输出筛选统计信息
+        logger.info("=" * 60)
+        logger.info("策略筛选详细统计")
+        logger.info("=" * 60)
+        logger.info(f"总股票数: {debug_stats['total_stocks']}")
+        logger.info(f"数据量不足 (< {min_period} 条): {debug_stats['insufficient_data']}")
+        logger.info(f"指标缺失: {debug_stats['missing_indicators']}")
+        logger.info(f"条件1失败 (J值 > {self.j_threshold}): {debug_stats['condition1_fail']}")
+        logger.info(f"条件2失败 (成交量比 >= 0.5): {debug_stats['condition2_fail']}")
+        logger.info(f"条件3失败 (未接近均线): {debug_stats['condition3_fail']}")
+        logger.info(f"通过筛选: {debug_stats['passed']}")
+        logger.info("=" * 60)
         
         if result_list:
             result_df = pd.DataFrame(result_list)

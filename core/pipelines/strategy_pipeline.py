@@ -17,6 +17,7 @@ from core.pipelines.base import BasePipeline
 from core.common.exceptions import PipelineException
 from core.strategies.base import BaseStrategy
 from core.calculators.aggregator import Aggregator
+from core.loaders.base import BaseLoader
 from utils.date_helper import DateHelper
 from core.pipelines.strategy_worker import process_single_stock, process_single_stock_complete
 
@@ -26,13 +27,14 @@ class StrategyPipeline(BasePipeline):
     策略流水线
     
     功能：
-    每只股票一个进程，在子进程中完成完整流程：
-    1. 读取历史日K线数据（已包含前复权价格字段）
-    2. 读取当天实时k线数据
-    3. 使用聚合器将实时k线数据聚合为日K线
-    4. 拼接历史k线和当天实时k线
-    5. 计算指标并筛选股票
-    6. 返回筛选结果并保存到文件
+    1. 更新实时K线数据（可选，默认启用）
+    2. 每只股票一个进程，在子进程中完成完整流程：
+       - 读取历史日K线数据（已包含前复权价格字段）
+       - 读取当天实时k线数据
+       - 使用聚合器将实时k线数据聚合为日K线
+       - 拼接历史k线和当天实时k线
+       - 计算指标并筛选股票
+    3. 返回筛选结果并保存到文件
     
     优化特性：
     - 每只股票一个进程，完成从数据读取到策略筛选的完整流程
@@ -84,6 +86,7 @@ class StrategyPipeline(BasePipeline):
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         trade_date: Optional[str] = None,
+        update_real_time_data: bool = True,
         **kwargs
     ) -> Union[List[str], pd.DataFrame]:
         """
@@ -95,6 +98,7 @@ class StrategyPipeline(BasePipeline):
             start_date: 历史数据开始日期 (YYYY-MM-DD)（可选）
             end_date: 历史数据结束日期 (YYYY-MM-DD)（可选，默认为trade_date的前一天）
             trade_date: 当天交易日期 (YYYY-MM-DD)（可选，默认为今天）
+            update_real_time_data: 是否先更新实时K线数据（默认 True）
             **kwargs: 其他参数
         
         Returns:
@@ -106,12 +110,21 @@ class StrategyPipeline(BasePipeline):
                 trade_date = DateHelper.today()
             trade_date = DateHelper.normalize_to_yyyy_mm_dd(trade_date)
             
-            # 确定历史数据结束日期（默认为trade_date的前一天）
+            # 0. 更新实时K线数据（如果需要）
+            if update_real_time_data:
+                logger.info("-" * 60)
+                logger.info("步骤 0: 更新实时K线数据 (intraday_kline)")
+                logger.info("-" * 60)
+                try:
+                    self._update_real_time_data(trade_date)
+                except Exception as e:
+                    logger.warning(f"更新实时K线数据失败，日期:{trade_date}，错误:{e}，继续执行策略筛选")
+                    # 实时数据更新失败不应该阻止策略运行，只记录警告
+            
+            # 确定历史数据结束日期（默认为trade_date，包含今天的数据）
             if end_date is None:
-                # 简单实现：使用trade_date的前一天
-                trade_date_obj = DateHelper.parse_to_date(trade_date)
-                end_date_obj = trade_date_obj - timedelta(days=1)
-                end_date = DateHelper.parse_to_str(end_date_obj)
+                # 包含今天的数据，以便检查历史数据中是否有今天的数据
+                end_date = trade_date
             end_date = DateHelper.normalize_to_yyyy_mm_dd(end_date)
             
             # 1. 获取股票代码列表
@@ -349,8 +362,11 @@ class StrategyPipeline(BasePipeline):
         """
         拼接单只股票的历史k线和当天实时k线
         
+        注意：此方法仅在历史数据中没有今天的数据时被调用。
+        如果历史数据中有今天的数据，应该优先使用历史数据，不会调用此方法。
+        
         Args:
-            historical_df: 单只股票的历史日K线数据（包含前复权价格字段）
+            historical_df: 单只股票的历史日K线数据（不包含今天的数据，已过滤）
             daily_from_intraday: 单只股票的当天实时k线聚合后的日K线数据
             trade_date: 交易日期
         
@@ -580,6 +596,13 @@ class StrategyPipeline(BasePipeline):
         
         # 使用进程池并行处理
         results = []
+        stats = {
+            'total': num_stocks,
+            'no_data': 0,
+            'no_today_data': 0,
+            'strategy_filtered': 0,
+            'errors': 0
+        }
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             # 提交所有任务
@@ -598,11 +621,31 @@ class StrategyPipeline(BasePipeline):
                         result = future.result()
                         if result is not None:
                             results.append(result)
+                            stats['strategy_filtered'] += 1
                             pbar.set_postfix({"筛选": len(results)})
+                        else:
+                            stats['no_data'] += 1
+                    except ValueError as e:
+                        # 这是数据缺失的错误
+                        if "既没有历史K线数据" in str(e) or "实时K线数据聚合失败" in str(e):
+                            stats['no_today_data'] += 1
+                        logger.debug(f"[DEBUG] 股票 {ts_code} 数据问题: {e}")
                     except Exception as e:
+                        stats['errors'] += 1
                         logger.error(f"处理股票 {ts_code} 时出错: {e}")
                     finally:
                         pbar.update(1)
+        
+        # 输出统计信息
+        logger.info("=" * 60)
+        logger.info("策略筛选统计信息")
+        logger.info("=" * 60)
+        logger.info(f"总股票数: {stats['total']}")
+        logger.info(f"无历史数据: {stats['no_data']}")
+        logger.info(f"缺少今天数据: {stats['no_today_data']}")
+        logger.info(f"策略筛选通过: {stats['strategy_filtered']}")
+        logger.info(f"处理错误: {stats['errors']}")
+        logger.info("=" * 60)
         
         # 合并结果
         if not results:
@@ -750,4 +793,30 @@ class StrategyPipeline(BasePipeline):
                         params[param_name] = value
         
         return params
+    
+    def _update_real_time_data(self, trade_date: str) -> None:
+        """
+        更新实时K线数据
+        
+        从 DailyPipeline 移至此处的功能，用于在运行策略前更新实时K线数据
+        
+        Args:
+            trade_date: 交易日期 (YYYY-MM-DD)
+        """
+        try:
+            raw_data = self.intraday_kline_collector.collect()
+            if raw_data is None or raw_data.empty:
+                logger.warning(f"未采集到实时数据，日期:{trade_date}")
+                return
+            
+            transformed_data = self.intraday_kline_transformer.transform(raw_data, trade_date=trade_date)
+            if transformed_data is None or transformed_data.empty:
+                logger.warning(f"转换后的实时数据为空，日期:{trade_date}")
+                return
+
+            self.intraday_kline_loader.load(transformed_data, strategy=BaseLoader.LOAD_STRATEGY_APPEND)
+
+        except Exception as e:
+            logger.error(f"更新实时数据失败，日期:{trade_date}，错误:{e}")
+            raise
 

@@ -1,7 +1,8 @@
 """
 每日定时调度脚本
 
-每天下午2:00执行 daily_pipeline
+每天晚上19:00执行 daily_pipeline，更新历史数据（股票基本信息、交易日历、日K线、复权因子、前复权数据）
+注意：实时K线数据更新已移至 StrategyPipeline
 """
 
 import sys
@@ -21,10 +22,12 @@ from utils.setup_logger import setup_logger
 def run_daily_pipeline():
     """
     执行每日更新流水线
+    
+    更新历史数据：股票基本信息、交易日历、日K线、复权因子、前复权数据
     """
     try:
         logger.info("=" * 60)
-        logger.info("开始执行每日更新流水线")
+        logger.info("开始执行每日更新流水线（历史数据）")
         logger.info("=" * 60)
         
         pipeline = DailyPipeline()
@@ -33,8 +36,7 @@ def run_daily_pipeline():
             update_trade_calendar=True,
             update_daily_kline=True,
             update_adj_factor=True,
-            update_qfq_data=True,
-            update_real_time_data=True
+            update_qfq_data=True
         )
         
         logger.info("=" * 60)
@@ -47,28 +49,9 @@ def run_daily_pipeline():
 
 
 def main():
-    """
-    主函数：启动调度器
-    """
-    # 设置日志
-    setup_logger()
-    
-    # 创建调度器
-    scheduler = TaskScheduler(config={'timezone': 'Asia/Shanghai'})
-    
-    # 添加每日更新任务（每天14:00执行）
-    scheduler.add_task({
-        'name': 'daily_pipeline',
-        'func': run_daily_pipeline,
-        'schedule': '0 14 * * *',  # 每天14:00
-        'args': (),
-        'kwargs': {}
-    })
-    
-    # 启动调度器
-    scheduler.start()
+    run_daily_pipeline()
 
-
+    
 if __name__ == "__main__":
     main()
 
