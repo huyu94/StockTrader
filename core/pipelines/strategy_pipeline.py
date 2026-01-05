@@ -19,6 +19,7 @@ from core.strategies.base import BaseStrategy
 from core.calculators.aggregator import Aggregator
 from core.loaders.base import BaseLoader
 from utils.date_helper import DateHelper
+from utils.message_robot import MessageRobot
 from core.pipelines.strategy_worker import process_single_stock, process_single_stock_complete
 
 
@@ -553,9 +554,69 @@ class StrategyPipeline(BasePipeline):
                 output_file = self.output_dir / f"{safe_strategy_name}_{timestamp}.csv"
                 result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
             
+            # 发送消息到机器人
+            self._send_stock_message(result_df, strategy_name, trade_date)
+            
         except Exception as e:
             logger.error(f"保存结果失败: {e}")
             # 不抛出异常，只记录错误
+    
+    def _send_stock_message(
+        self,
+        result_df: pd.DataFrame,
+        strategy_name: str,
+        trade_date: str
+    ) -> None:
+        """
+        发送选中的股票信息到机器人
+        
+        Args:
+            result_df: 筛选结果DataFrame（包含ts_code和name列）
+            strategy_name: 策略名称
+            trade_date: 交易日期
+        """
+        try:
+            # 检查是否有结果
+            if result_df.empty:
+                logger.info("筛选结果为空，不发送消息")
+                return
+            
+            # 检查必要的列
+            if 'ts_code' not in result_df.columns:
+                logger.warning("结果中缺少ts_code列，无法发送消息")
+                return
+            
+            # 提取股票代码和名称
+            stocks = []
+            for _, row in result_df.iterrows():
+                ts_code = row['ts_code']
+                name = row.get('name', '未知')
+                stocks.append(f"{name}({ts_code})")
+            
+            # 构建消息内容
+            stock_count = len(stocks)
+            message_lines = [
+                f"【{strategy_name}】策略筛选结果",
+                f"交易日期: {trade_date}",
+                f"选中股票数量: {stock_count}",
+                "",
+                "股票列表:"
+            ]
+            
+            # 添加股票信息（每行一个）
+            for stock in stocks:
+                message_lines.append(stock)
+            
+            message = "\n".join(message_lines)
+            
+            # 发送消息
+            message_robot = MessageRobot()
+            message_robot.send_message(message)
+            logger.info(f"已发送 {stock_count} 只股票信息到机器人")
+            
+        except Exception as e:
+            logger.warning(f"发送消息到机器人失败: {e}，继续执行")
+            # 不抛出异常，只记录警告，避免影响主流程
     
     def _run_complete_pipeline_multiprocess(
         self,
