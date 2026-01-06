@@ -1,0 +1,26 @@
+services:
+  stocktrader:
+    build:
+      context: .
+    image: stocktrader:${IMAGE_VERSION:-latest}
+    container_name: stocktrader
+    restart: always
+    # 明确指定从 .env 文件读取环境变量
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TZ=Asia/Shanghai
+      # MySQL 配置（从 .env 文件读取）
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_CHARSET=${MYSQL_CHARSET:-utf8mb4}
+      # Tushare API Token
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      # 消息机器人 Token（可选）
+      - MESSAGE_ROBOT_ACCESS_TOKEN=${MESSAGE_ROBOT_ACCESS_TOKEN:-}
+

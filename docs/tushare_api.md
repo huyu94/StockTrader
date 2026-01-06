@@ -1,3 +1,7 @@
+# 文档使用说明
+- 这个文档介绍了tushare的一些api使用说明
+
+
 
 # pro.daily
 接口：daily，可以通过数据工具调试和查看数据
@@ -66,3 +70,56 @@ freq	str	Y	数据频度 ：支持分钟(min)/日(D)/周(W)/月(M)K线，其中1m
 ma	list	N	均线，支持任意合理int数值。注：均线是动态计算，要设置一定时间范围才能获得相应的均线，比如5日均线，开始和结束日期参数跨度必须要超过5日。目前只支持单一个股票提取均线，即需要输入ts_code参数。e.g: ma_5表示5日均价，ma_v_5表示5日均量
 factors	list	N	股票因子（asset='E'有效）支持 tor换手率 vr量比
 adjfactor	str	N	复权因子，在复权数据时，如果此参数为True，返回的数据中则带复权因子，默认为False。 该功能从1.2.33版本开始生效
+
+
+
+# 分红送股
+接口：dividend
+描述：分红送股数据
+权限：用户需要至少2000积分才可以调取，具体请参阅积分获取办法
+
+## 输入参数
+名称	类型	必选	描述
+ts_code	str	N	TS代码
+ann_date	str	N	公告日
+record_date	str	N	股权登记日期
+ex_date	str	N	除权除息日
+imp_ann_date	str	N	实施公告日
+以上参数至少有一个不能为空
+
+## 输出参数
+
+名称	类型	默认显示	描述
+ts_code	str	Y	TS代码
+end_date	str	Y	分红年度
+ann_date	str	Y	预案公告日
+div_proc	str	Y	实施进度
+stk_div	float	Y	每股送转
+stk_bo_rate	float	Y	每股送股比例
+stk_co_rate	float	Y	每股转增比例
+cash_div	float	Y	每股分红（税后）
+cash_div_tax	float	Y	每股分红（税前）
+record_date	str	Y	股权登记日
+ex_date	str	Y	除权除息日
+pay_date	str	Y	派息日
+div_listdate	str	Y	红股上市日
+imp_ann_date	str	Y	实施公告日
+base_date	str	N	基准日
+base_share	float	N	基准股本（万）
+
+## 接口示例
+```
+pro = ts.pro_api()
+
+df = pro.dividend(ts_code='600848.SH', fields='ts_code,div_proc,stk_div,record_date,ex_date')
+```
+## 数据样例
+```
+ts_code div_proc  stk_div record_date   ex_date
+0  600848.SH       实施     0.10    19950606  19950607
+1  600848.SH       实施     0.10    19970707  19970708
+2  600848.SH       实施     0.15    19960701  19960702
+3  600848.SH       实施     0.10    19980706  19980707
+4  600848.SH       预案     0.00        None      None
+5  600848.SH       实施     0.00    20180522  20180523
+```

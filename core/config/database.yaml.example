@@ -1,0 +1,30 @@
+# 数据库配置示例
+# 复制此文件为 database.yaml 并修改配置
+
+database:
+  # MySQL 配置
+  mysql:
+    host: ${MYSQL_HOST}  # 从环境变量读取，默认 localhost
+    port: ${MYSQL_PORT}  # 从环境变量读取，默认 3306
+    user: ${MYSQL_USER}  # 从环境变量读取，默认 root
+    password: ${MYSQL_PASSWORD}  # 从环境变量读取
+    database: ${MYSQL_DATABASE}  # 从环境变量读取，默认 stock_data
+    charset: utf8mb4
+    pool_size: 10  # 连接池大小
+    max_overflow: 20  # 最大溢出连接数
+    
+  # PostgreSQL 配置（可选）
+  # postgresql:
+  #   host: ${POSTGRES_HOST}
+  #   port: ${POSTGRES_PORT}
+  #   user: ${POSTGRES_USER}
+  #   password: ${POSTGRES_PASSWORD}
+  #   database: ${POSTGRES_DATABASE}
+  #   pool_size: 10
+  #   max_overflow: 20
+    
+  # SQLite 配置（可选，用于开发测试）
+  # sqlite:
+  #   path: ${SQLITE_PATH}  # 数据库文件路径
+  #   timeout: 20
+

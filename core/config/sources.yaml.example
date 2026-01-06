@@ -1,0 +1,20 @@
+# 数据源配置示例
+# 复制此文件为 sources.yaml 并修改配置
+
+sources:
+  tushare:
+    api_url: "http://api.tushare.pro"
+    token: ${TUSHARE_TOKEN}  # 从环境变量读取
+    timeout: 30
+    rate_limit: 200  # 每分钟请求次数限制
+    
+  akshare:
+    api_url: ""  # Akshare 为本地库，无需 API URL
+    timeout: 30
+    
+  # 可以添加其他数据源
+  # custom_source:
+  #   api_url: "https://api.example.com"
+  #   token: ${CUSTOM_TOKEN}
+  #   timeout: 30
+

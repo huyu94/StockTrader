@@ -22,4 +22,22 @@ dependencies = [
     "tqdm>=4.67.1",
     "tushare>=1.4.24",
     "uvicorn>=0.38.0",
+    "sqlalchemy>=2.0.0",
+    "pymysql>=1.1.0",
+    "cryptography>=46.0.3",
+    "apscheduler>=3.11.2",
+    "pytz>=2025.2",
 ]
+
+[tool.pytest.ini_options]
+# 注册自定义标记，避免 pytest 警告
+markers = [
+    "api: 标记需要调用外部 API 的测试（需要有效的 TUSHARE_TOKEN）",
+    "slow: 标记运行时间较长的测试（如获取所有股票数据）",
+]
+# 默认跳过慢速测试，可以通过 -m slow 来运行
+addopts = "-v --tb=short -m 'not slow'"
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

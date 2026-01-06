@@ -1,0 +1,36 @@
+# 调度配置示例
+# 复制此文件为 schedules.yaml 并修改配置
+
+pipelines:
+  daily_update:
+    # 交易日历：每天 9:00 执行
+    - name: trade_calendar
+      pipeline: trade_calendar
+      schedule: "0 9 * * *"  # cron 表达式：每天 9:00
+      depends_on: []  # 无依赖
+      
+    # 股票基本信息：每天 9:30 执行，依赖交易日历
+    - name: basic_info
+      pipeline: basic_info
+      schedule: "0 9:30 * * *"  # cron 表达式：每天 9:30
+      depends_on: [trade_calendar]  # 依赖交易日历任务
+      
+    # 日K线数据：每天 16:00 执行，依赖交易日历和基本信息
+    - name: daily_kline
+      pipeline: daily_kline
+      schedule: "0 16 * * *"  # cron 表达式：每天 16:00
+      depends_on: [trade_calendar, basic_info]  # 依赖交易日历和基本信息
+      
+    # 复权因子：每天 16:30 执行，依赖日K线数据
+    - name: adj_factor
+      pipeline: adj_factor
+      schedule: "30 16 * * *"  # cron 表达式：每天 16:30
+      depends_on: [daily_kline]  # 依赖日K线任务
+
+# 全局配置
+global:
+  max_concurrent_tasks: 3  # 最大并发任务数
+  retry_failed_tasks: true  # 是否重试失败的任务
+  max_retry_times: 3  # 最大重试次数
+  retry_delay: 300  # 重试延迟（秒）
+

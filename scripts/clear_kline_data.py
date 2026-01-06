@@ -23,7 +23,7 @@ from loguru import logger
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import setup_logger
-from src.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
+from src.data.storage.daily_kline_storage_sqlite import DailyKlineStorageSQLite
 
 
 def clear_all_kline_data(confirm: bool = True):
