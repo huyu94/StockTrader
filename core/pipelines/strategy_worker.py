@@ -123,10 +123,7 @@ def process_single_stock_complete(
         )
         
         if historical_df.empty:
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 历史K线数据为空 (start_date={start_date}, end_date={end_date})")
             return None
-        
-        logger.debug(f"[DEBUG] 股票 {ts_code}: 读取到 {len(historical_df)} 条历史K线数据")
         
         # 确保 trade_date 列是 datetime 类型
         if 'trade_date' in historical_df.columns:
@@ -139,10 +136,6 @@ def process_single_stock_complete(
             historical_df['trade_date'] == trade_date_obj
         ]
         
-        if not today_data_in_historical.empty:
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 历史数据中包含今天({trade_date})的数据，共 {len(today_data_in_historical)} 条")
-        else:
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 历史数据中不包含今天({trade_date})的数据")
         
         # 4. 准备最终数据
         if not today_data_in_historical.empty:
@@ -164,7 +157,6 @@ def process_single_stock_complete(
             else:
                 final_df = today_historical_prepared
             
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 使用历史K线数据（优先），最终数据共 {len(final_df)} 条，日期范围: {final_df['trade_date'].min()} 到 {final_df['trade_date'].max()}")
         else:
             # 历史数据中没有今天的数据，使用实时K线数据
             # 5. 读取实时K线数据
@@ -176,10 +168,7 @@ def process_single_stock_complete(
             if intraday_df.empty:
                 # 实时数据也没有，报错
                 error_msg = f"股票 {ts_code} 在 {trade_date} 既没有历史K线数据，也没有实时K线数据"
-                logger.error(f"[DEBUG] {error_msg}")
                 raise ValueError(error_msg)
-            
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 读取到 {len(intraday_df)} 条实时K线数据")
             
             # 6. 聚合实时k线数据为日K线
             daily_from_intraday = aggregator.aggregate_to_daily(intraday_df)
@@ -187,10 +176,7 @@ def process_single_stock_complete(
             if daily_from_intraday.empty:
                 # 聚合失败，报错
                 error_msg = f"股票 {ts_code} 在 {trade_date} 实时K线数据聚合失败"
-                logger.error(f"[DEBUG] {error_msg}")
                 raise ValueError(error_msg)
-            
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 实时K线聚合成功，得到 {len(daily_from_intraday)} 条日K线数据")
             
             # 7. 合并历史数据和实时数据
             # 过滤掉历史数据中今天的数据（虽然应该没有，但为了安全）
@@ -198,21 +184,20 @@ def process_single_stock_complete(
                 historical_df['trade_date'] < trade_date_obj
             ]
             
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 历史数据（不含今天）共 {len(historical_without_today)} 条")
-            
             final_df = _merge_historical_and_realtime_single_stock(
                 historical_df=historical_without_today,
                 daily_from_intraday=daily_from_intraday,
                 trade_date=trade_date
             )
             
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 使用实时K线聚合数据，最终数据共 {len(final_df)} 条，日期范围: {final_df['trade_date'].min()} 到 {final_df['trade_date'].max()}")
-        
         if final_df.empty:
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 最终数据为空，跳过策略筛选")
             return None
         
-        logger.debug(f"[DEBUG] 股票 {ts_code}: 准备运行策略，最终数据共 {len(final_df)} 条")
+        # 确保所有数值列都是float类型（处理数据库返回的Decimal类型）
+        numeric_columns = ['open', 'high', 'low', 'close', 'vol', 'amount']
+        for col in numeric_columns:
+            if col in final_df.columns:
+                final_df[col] = pd.to_numeric(final_df[col], errors='coerce').astype(float)
         
         # 5. 创建策略实例并运行
         strategy = strategy_class(**strategy_params)
@@ -223,13 +208,6 @@ def process_single_stock_complete(
         
         # 运行策略：计算指标并筛选
         result = strategy.run(final_df)
-        
-        if result is None:
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 策略筛选结果为空")
-        elif isinstance(result, list):
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 策略筛选结果包含 {len(result)} 个股票代码")
-        elif isinstance(result, pd.DataFrame):
-            logger.debug(f"[DEBUG] 股票 {ts_code}: 策略筛选结果DataFrame包含 {len(result)} 行")
         
         # 6. 处理结果
         if isinstance(result, list):
@@ -261,12 +239,13 @@ def _prepare_final_dataframe(historical_df: pd.DataFrame) -> pd.DataFrame:
     准备最终DataFrame（仅使用历史数据时）
     
     将历史数据的前复权价格字段转换为标准列名，并删除_qfq后缀列
+    同时确保所有数值列都是float类型（处理数据库返回的Decimal类型）
     
     Args:
         historical_df: 历史日K线数据
     
     Returns:
-        pd.DataFrame: 准备好的DataFrame（已删除_qfq后缀列）
+        pd.DataFrame: 准备好的DataFrame（已删除_qfq后缀列，数值列已转换为float）
     """
     df = historical_df.copy()
     
@@ -284,7 +263,12 @@ def _prepare_final_dataframe(historical_df: pd.DataFrame) -> pd.DataFrame:
     qfq_columns = [col for col in df.columns if col.endswith('_qfq')]
     if qfq_columns:
         df = df.drop(columns=qfq_columns)
-        logger.debug(f"已删除_qfq后缀列: {qfq_columns}")
+    
+    # 确保所有数值列都是float类型（处理数据库返回的Decimal类型）
+    numeric_columns = ['open', 'high', 'low', 'close', 'vol', 'amount']
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
     
     # 确保必需的列存在
     required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
@@ -293,6 +277,180 @@ def _prepare_final_dataframe(historical_df: pd.DataFrame) -> pd.DataFrame:
         logger.warning(f"数据缺少必需的列: {missing_columns}")
     
     return df
+
+
+def process_batch_stocks_complete(
+    ts_codes: List[str],
+    strategy_class: type,
+    strategy_params: Dict[str, Any],
+    start_date: Optional[str],
+    end_date: Optional[str],
+    trade_date: str,
+    config: Optional[Dict[str, Any]] = None
+) -> List[Union[List[str], pd.DataFrame, None]]:
+    """
+    批量处理股票的完整流程（用于多进程）
+    
+    在子进程中完成从数据读取到策略筛选的完整流程，复用同一个策略实例处理多只股票：
+    1. 创建一次策略实例
+    2. 循环处理每只股票：
+       - 读取历史K线数据
+       - 读取实时K线数据
+       - 聚合实时K线为日K线
+       - 拼接历史数据和当天数据
+       - 计算指标并筛选股票
+    
+    Args:
+        ts_codes: 股票代码列表
+        strategy_class: 策略类（必须是BaseStrategy的子类）
+        strategy_params: 策略初始化参数字典
+        start_date: 历史数据开始日期 (YYYY-MM-DD)
+        end_date: 历史数据结束日期 (YYYY-MM-DD)
+        trade_date: 交易日期 (YYYY-MM-DD)
+        config: 流水线配置字典（用于初始化数据加载器）
+    
+    Returns:
+        List[Union[List[str], pd.DataFrame, None]]: 
+            每只股票的筛选结果列表，如果股票符合条件返回筛选结果，否则返回None
+    """
+    results = []
+    
+    try:
+        # 1. 初始化数据加载器和聚合器（只初始化一次）
+        daily_kline_loader = DailyKlineLoader()
+        intraday_kline_loader = IntradayKlineLoader()
+        aggregator = Aggregator()
+        
+        # 2. 创建策略实例（只创建一次，复用）
+        strategy = strategy_class(**strategy_params)
+        
+        # 3. 循环处理每只股票
+        for ts_code in ts_codes:
+            try:
+                # 读取历史K线数据（包含今天的数据）
+                historical_df = daily_kline_loader.read(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                
+                if historical_df.empty:
+                    results.append(None)
+                    continue
+                
+                # 确保 trade_date 列是 datetime 类型
+                if 'trade_date' in historical_df.columns:
+                    if not pd.api.types.is_datetime64_any_dtype(historical_df['trade_date']):
+                        historical_df['trade_date'] = pd.to_datetime(historical_df['trade_date'], errors='coerce')
+                
+                # 检查历史数据中是否包含今天的数据
+                trade_date_obj = pd.to_datetime(trade_date)
+                today_data_in_historical = historical_df[
+                    historical_df['trade_date'] == trade_date_obj
+                ]
+                
+                # 准备最终数据
+                if not today_data_in_historical.empty:
+                    # 历史数据中有今天的数据，优先使用历史数据
+                    historical_without_today = historical_df[
+                        historical_df['trade_date'] < trade_date_obj
+                    ]
+                    
+                    # 准备今天的历史数据
+                    today_historical_prepared = _prepare_final_dataframe(today_data_in_historical)
+                    
+                    # 准备历史数据（不包含今天）
+                    historical_prepared = _prepare_final_dataframe(historical_without_today)
+                    
+                    # 合并：历史数据（不含今天）+ 今天的历史数据
+                    if not historical_prepared.empty:
+                        final_df = pd.concat([historical_prepared, today_historical_prepared], ignore_index=True)
+                    else:
+                        final_df = today_historical_prepared
+                    
+                else:
+                    # 历史数据中没有今天的数据，使用实时K线数据
+                    # 读取实时K线数据
+                    intraday_df = intraday_kline_loader.read(
+                        ts_code=ts_code,
+                        trade_date=trade_date
+                    )
+                    
+                    if intraday_df.empty:
+                        # 实时数据也没有，记录错误并继续
+                        error_msg = f"股票 {ts_code} 在 {trade_date} 既没有历史K线数据，也没有实时K线数据"
+                        logger.warning(error_msg)
+                        results.append(None)
+                        continue
+                    
+                    # 聚合实时k线数据为日K线
+                    daily_from_intraday = aggregator.aggregate_to_daily(intraday_df)
+                    
+                    if daily_from_intraday.empty:
+                        # 聚合失败，记录错误并继续
+                        error_msg = f"股票 {ts_code} 在 {trade_date} 实时K线数据聚合失败"
+                        logger.warning(error_msg)
+                        results.append(None)
+                        continue
+                    
+                    # 合并历史数据和实时数据
+                    historical_without_today = historical_df[
+                        historical_df['trade_date'] < trade_date_obj
+                    ]
+                    
+                    final_df = _merge_historical_and_realtime_single_stock(
+                        historical_df=historical_without_today,
+                        daily_from_intraday=daily_from_intraday,
+                        trade_date=trade_date
+                    )
+                
+                if final_df.empty:
+                    results.append(None)
+                    continue
+                
+                # 确保所有数值列都是float类型（处理数据库返回的Decimal类型）
+                numeric_columns = ['open', 'high', 'low', 'close', 'vol', 'amount']
+                for col in numeric_columns:
+                    if col in final_df.columns:
+                        final_df[col] = pd.to_numeric(final_df[col], errors='coerce').astype(float)
+                
+                # 确保数据按日期排序
+                if 'trade_date' in final_df.columns:
+                    final_df = final_df.sort_values('trade_date').reset_index(drop=True)
+                
+                # 运行策略：计算指标并筛选（复用策略实例）
+                result = strategy.run(final_df)
+                
+                # 处理结果
+                if isinstance(result, list):
+                    # 如果结果是列表，检查当前股票是否在结果中
+                    if ts_code in result:
+                        results.append([ts_code])
+                    else:
+                        results.append(None)
+                elif isinstance(result, pd.DataFrame):
+                    # 如果结果是DataFrame，检查是否为空
+                    if not result.empty:
+                        # 确保包含ts_code列
+                        if 'ts_code' not in result.columns:
+                            result = result.copy()
+                            result['ts_code'] = ts_code
+                        results.append(result)
+                    else:
+                        results.append(None)
+                else:
+                    results.append(None)
+                    
+            except Exception as e:
+                logger.error(f"处理股票 {ts_code} 的完整流程时出错: {e}")
+                results.append(None)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"批量处理股票时出错: {e}")
+        # 返回与股票数量相同的None列表
+        return [None] * len(ts_codes)
 
 
 def _merge_historical_and_realtime_single_stock(
@@ -359,6 +517,12 @@ def _merge_historical_and_realtime_single_stock(
     
     # 合并
     merged_df = pd.concat([historical_selected, daily_selected], ignore_index=True)
+    
+    # 确保所有数值列都是float类型（处理数据库返回的Decimal类型）
+    numeric_columns = ['open', 'high', 'low', 'close', 'vol', 'amount']
+    for col in numeric_columns:
+        if col in merged_df.columns:
+            merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').astype(float)
     
     # 按日期排序
     merged_df = merged_df.sort_values('trade_date').reset_index(drop=True)

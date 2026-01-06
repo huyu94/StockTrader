@@ -49,7 +49,6 @@ class BaseLoader(ABC):
         self.table = self.config.get("table", "")
         self.batch_size = self.config.get("batch_size", 1000)
         self.upsert_keys = self.config.get("upsert_keys", [])
-        logger.debug(f"初始化加载器: {self.__class__.__name__}, 表: {self.table}")
     
     @classmethod
     def _get_engine(cls):
@@ -193,7 +192,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.debug(f"追加模式加载完成，共插入 {inserted_count} 条记录")
+        # logger.debug(f"追加模式加载完成，共插入 {inserted_count} 条记录")
     
     def _load_replace(self, data: pd.DataFrame) -> None:
         """
@@ -256,7 +255,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.debug(f"替换模式加载完成，共插入 {inserted_count} 条记录")
+        # logger.debug(f"替换模式加载完成，共插入 {inserted_count} 条记录")
     
     def _load_upsert(self, data: pd.DataFrame) -> None:
         """
@@ -291,7 +290,7 @@ class BaseLoader(ABC):
                 show_progress=False
             )
         
-        logger.debug(f"更新或插入模式加载完成，共处理 {inserted_count} 条记录")
+        # logger.debug(f"更新或插入模式加载完成，共处理 {inserted_count} 条记录")
     
     def _bulk_insert_dataframe(
         self,

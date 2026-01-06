@@ -362,7 +362,7 @@ class DailyPipeline(BasePipeline):
                             end_date=trade_date
                         )
                         if daily_kline_df is None or daily_kline_df.empty:
-                            logger.debug(f"未找到当天日K线数据，股票:{ts_code}，日期:{trade_date}")
+                            logger.debug(f"更新qfq信息失败：未找到当天日K线数据，股票:{ts_code}，日期:{trade_date}")
                             non_ex_fail_count += 1
                             continue
                         
@@ -383,6 +383,7 @@ class DailyPipeline(BasePipeline):
                     
                     except Exception as e:
                         logger.error(f"更新非除权除息日股票前复权数据失败，股票:{ts_code}，日期:{trade_date}，错误:{e}")
+                        logger.debug(f"更新qfq信息失败：处理非除权除息日股票时发生异常，股票:{ts_code}，日期:{trade_date}，错误类型:{type(e).__name__}，错误详情:{e}")
                         non_ex_fail_count += 1
                         continue
                 

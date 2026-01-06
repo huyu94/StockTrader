@@ -6,6 +6,8 @@
 
 from typing import Any, Dict, List, Optional, Callable
 from datetime import datetime
+import signal
+import sys
 from loguru import logger
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -32,11 +34,32 @@ class TaskScheduler:
         self.config = config or {}
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.scheduler = BlockingScheduler(timezone=pytz.timezone(self.config.get('timezone', 'Asia/Shanghai')))
+        self._shutdown_requested = False
         
         # 注册事件监听器
         self.scheduler.add_listener(self._job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         
+        # 注册信号处理器，用于优雅关闭
+        # Windows 只支持 SIGINT，不支持 SIGTERM
+        signal.signal(signal.SIGINT, self._signal_handler)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        
         logger.debug("初始化任务调度器")
+    
+    def _signal_handler(self, signum, frame):
+        """信号处理器，用于捕获 Ctrl+C 等中断信号"""
+        if self._shutdown_requested:
+            # 如果已经收到关闭请求，强制退出
+            logger.warning("收到第二次中断信号，强制退出...")
+            sys.exit(1)
+        
+        logger.warning(f"收到中断信号 ({signum})，正在优雅关闭调度器...")
+        self._shutdown_requested = True
+        
+        # 停止调度器（这会触发 KeyboardInterrupt）
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
     
     def add_task(self, task_config: Dict[str, Any]) -> None:
         """
@@ -122,14 +145,34 @@ class TaskScheduler:
         except (KeyboardInterrupt, SystemExit):
             logger.info("收到停止信号，正在关闭调度器...")
             self.stop()
+        except Exception as e:
+            logger.error(f"调度器运行异常: {e}")
+            self.stop()
+            raise
     
     def stop(self) -> None:
         """
         停止调度器
         """
+        if self._shutdown_requested:
+            # 如果已经收到关闭请求，直接返回
+            return
+        
+        self._shutdown_requested = True
+        
         if self.scheduler.running:
-            self.scheduler.shutdown()
-            logger.info("调度器已停止")
+            logger.info("正在关闭调度器...")
+            try:
+                # 等待当前任务完成，但设置超时
+                self.scheduler.shutdown(wait=True)
+                logger.info("调度器已停止")
+            except Exception as e:
+                logger.error(f"关闭调度器时出错: {e}")
+                # 强制关闭
+                try:
+                    self.scheduler.shutdown(wait=False)
+                except:
+                    pass
     
     def execute_task(self, task_name: str) -> None:
         """

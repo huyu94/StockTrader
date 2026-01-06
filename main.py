@@ -6,6 +6,8 @@
 2. 每个交易日下午14:00自动执行 strategy_pipeline，运行策略筛选
 """
 
+import signal
+import sys
 from loguru import logger
 from core.pipelines.history_pipeline import HistoryPipeline
 from core.pipelines.daily_pipeline import DailyPipeline
@@ -205,7 +207,8 @@ def run_all_strategies():
     """
     执行所有配置的策略
     
-    只在交易日执行，依次运行每个策略，每个策略都会先更新实时K线数据
+    使用 StrategyPipeline 的多策略并行运行功能
+    只在交易日执行
     """
     try:
         # 检查是否为交易日
@@ -214,19 +217,26 @@ def run_all_strategies():
             logger.info(f"今日 {today} 不是交易日，跳过策略执行")
             return
         
-        logger.info("=" * 80)
-        logger.info("开始执行策略流水线调度任务")
-        logger.info(f"共配置 {len(STRATEGIES_CONFIG)} 个策略")
-        logger.info("=" * 80)
+        logger.info(f"开始执行策略流水线，共 {len(STRATEGIES_CONFIG)} 个策略")
         
-        for i, strategy_config in enumerate(STRATEGIES_CONFIG, 1):
-            logger.info(f"\n执行第 {i}/{len(STRATEGIES_CONFIG)} 个策略")
-            try:
-                run_strategy_pipeline(strategy_config)
-            except Exception as e:
-                logger.error(f"策略 {strategy_config.get('name', 'Unknown')} 执行失败: {e}")
-                # 继续执行下一个策略，不中断整个流程
-                continue
+        # 创建 StrategyPipeline 实例
+        pipeline = StrategyPipeline(
+            config={
+                'output_dir': 'output',
+                'output_format': 'csv',
+                'use_multiprocessing': True,
+                'max_workers': None  # 使用CPU核心数
+            }
+        )
+        
+        # 并行运行所有策略（内部会统一更新数据一次）
+        results = pipeline.run(
+            strategies_config=STRATEGIES_CONFIG,
+            ts_codes=None,  # 处理所有股票
+            trade_date=None,  # 使用今天
+            update_real_time_data=True,  # 统一更新实时K线数据
+            send_to_robots=True
+        )
         
         logger.info("=" * 80)
         logger.info("所有策略执行完成")
@@ -245,48 +255,62 @@ def main():
     1. 每天晚上19:00自动执行每日数据更新
     2. 每个交易日下午14:00自动执行策略筛选
     """
-    # 设置日志
-    setup_logger()
+    scheduler = None
     
-    # 创建调度器
-    scheduler = TaskScheduler(config={'timezone': 'Asia/Shanghai'})
-    
-    # 添加每日更新任务（每天19:00执行）
-    scheduler.add_task({
-        'name': 'daily_pipeline',
-        'func': run_daily_pipeline,
-        'schedule': '0 19 * * *',  # 每天19:00
-        'args': (),
-        'kwargs': {}
-    })
-    
-    # 添加策略流水线任务（每天14:00执行，但内部会检查是否为交易日）
-    scheduler.add_task({
-        'name': 'strategy_pipeline',
-        'func': run_all_strategies,
-        'schedule': '0 14 * * *',  # 每天14:00
-        'args': (),
-        'kwargs': {}
-    })
-    
-    logger.info("=" * 80)
-    logger.info("定时任务调度器已启动")
-    logger.info("=" * 80)
-    logger.info("任务1: 每日数据更新")
-    logger.info("  调度时间: 每天19:00")
-    logger.info("  功能: 更新历史数据（股票基本信息、交易日历、日K线、复权因子、前复权数据）")
-    logger.info("")
-    logger.info("任务2: 策略流水线")
-    logger.info("  调度时间: 每天14:00（仅交易日执行）")
-    logger.info(f"  配置的策略数量: {len(STRATEGIES_CONFIG)}")
-    for i, config in enumerate(STRATEGIES_CONFIG, 1):
-        logger.info(f"    策略 {i}: {config.get('name', config['strategy_class'].__name__)}")
-    logger.info("  功能: 更新实时K线数据，然后运行策略筛选")
-    logger.info("=" * 80)
-    logger.info("按 Ctrl+C 停止调度器")
-    
-    # 启动调度器
-    scheduler.start()
+    try:
+        # 设置日志
+        setup_logger()
+        
+        # 创建调度器
+        scheduler = TaskScheduler(config={'timezone': 'Asia/Shanghai'})
+        
+        # 添加每日更新任务（每天19:00执行）
+        scheduler.add_task({
+            'name': 'daily_pipeline',
+            'func': run_daily_pipeline,
+            'schedule': '0 19 * * *',  # 每天19:00
+            'args': (),
+            'kwargs': {}
+        })
+        
+        # 添加策略流水线任务（每天14:00执行，但内部会检查是否为交易日）
+        scheduler.add_task({
+            'name': 'strategy_pipeline',
+            'func': run_all_strategies,
+            'schedule': '0 14 * * *',  # 每天14:00
+            'args': (),
+            'kwargs': {}
+        })
+        
+        logger.info("=" * 80)
+        logger.info("定时任务调度器已启动")
+        logger.info("=" * 80)
+        logger.info("任务1: 每日数据更新")
+        logger.info("  调度时间: 每天19:00")
+        logger.info("  功能: 更新历史数据（股票基本信息、交易日历、日K线、复权因子、前复权数据）")
+        logger.info("")
+        logger.info("任务2: 策略流水线")
+        logger.info("  调度时间: 每天14:00（仅交易日执行）")
+        logger.info(f"  配置的策略数量: {len(STRATEGIES_CONFIG)}")
+        for i, config in enumerate(STRATEGIES_CONFIG, 1):
+            logger.info(f"    策略 {i}: {config.get('name', config['strategy_class'].__name__)}")
+        logger.info("  功能: 更新实时K线数据，然后运行策略筛选")
+        logger.info("=" * 80)
+        logger.info("按 Ctrl+C 停止调度器")
+        
+        # 启动调度器
+        scheduler.start()
+        
+    except KeyboardInterrupt:
+        logger.info("收到键盘中断信号，正在退出...")
+        if scheduler:
+            scheduler.stop()
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"程序运行异常: {e}")
+        if scheduler:
+            scheduler.stop()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@
 """
 
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, timedelta
 import pandas as pd
 from pathlib import Path
 import multiprocessing
@@ -16,11 +15,10 @@ from tqdm import tqdm
 from core.pipelines.base import BasePipeline
 from core.common.exceptions import PipelineException
 from core.strategies.base import BaseStrategy
-from core.calculators.aggregator import Aggregator
 from core.loaders.base import BaseLoader
 from utils.date_helper import DateHelper
 from utils.message_robot import MessageRobot
-from core.pipelines.strategy_worker import process_single_stock, process_single_stock_complete
+from core.pipelines.strategy_worker import process_single_stock_complete, process_batch_stocks_complete
 
 
 class StrategyPipeline(BasePipeline):
@@ -38,7 +36,8 @@ class StrategyPipeline(BasePipeline):
     3. 返回筛选结果并保存到文件
     
     优化特性：
-    - 每只股票一个进程，完成从数据读取到策略筛选的完整流程
+    - 每个进程处理一批股票，完成从数据读取到策略筛选的完整流程
+    - 每个进程只创建一次策略实例，在该进程中复用，减少重复初始化
     - 真正的端到端并行处理，包括I/O和计算
     - 数据完全隔离，避免大内存占用
     - 默认启用多进程并行处理
@@ -56,9 +55,9 @@ class StrategyPipeline(BasePipeline):
                 - max_workers: 最大进程数（默认 None，使用CPU核心数）
                 - use_multithreading: 是否使用多线程读取数据（默认 True）
                 - thread_workers: 最大线程数（默认 None，使用 min(20, CPU核心数*4)）
+                - batch_size: 每个进程处理的股票批次大小（默认 None，自动计算）
         """
         super().__init__(config)
-        self.aggregator = Aggregator()
         
         # 输出配置
         self.output_dir = Path(self.config.get("output_dir", "output"))
@@ -77,44 +76,54 @@ class StrategyPipeline(BasePipeline):
             # I/O密集型任务可以使用更多线程
             self.thread_workers = min(20, multiprocessing.cpu_count() * 4)
         
+        # 批次大小配置（用于批量处理股票，减少策略实例创建次数）
+        self.batch_size = self.config.get("batch_size", None)
+        
         # 确保输出目录存在
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
     def run(
         self,
-        strategy: BaseStrategy,
+        strategies_config: List[Dict[str, Any]],
         ts_codes: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
         trade_date: Optional[str] = None,
         update_real_time_data: bool = True,
+        send_to_robots: bool = True,
         **kwargs
-    ) -> Union[List[str], pd.DataFrame]:
+    ) -> Union[List[str], pd.DataFrame, Dict[str, Union[List[str], pd.DataFrame]]]:
         """
         执行策略流水线
         
         Args:
-            strategy: 策略实例
+            strategies_config: 策略配置列表，每个配置包含：
+                - strategy_class: 策略类
+                - strategy_params: 策略初始化参数
+                - start_date_days: 历史数据开始日期（天数）
+                - name: 策略名称（可选）
             ts_codes: 股票代码列表（可选，如果不提供则处理所有股票）
-            start_date: 历史数据开始日期 (YYYY-MM-DD)（可选）
-            end_date: 历史数据结束日期 (YYYY-MM-DD)（可选，默认为trade_date的前一天）
             trade_date: 当天交易日期 (YYYY-MM-DD)（可选，默认为今天）
             update_real_time_data: 是否先更新实时K线数据（默认 True）
+            send_to_robots: 是否发送消息到机器人（默认 True）
             **kwargs: 其他参数
         
         Returns:
-            Union[List[str], pd.DataFrame]: 策略筛选结果
+            Union[List[str], pd.DataFrame, Dict[str, Union[List[str], pd.DataFrame]]]: 
+                - 单个策略时：返回策略筛选结果
+                - 多个策略时：返回结果字典 {strategy_name: result}
         """
         try:
+            if not strategies_config:
+                raise ValueError("strategies_config 不能为空")
+            
             # 确定交易日期
             if trade_date is None:
                 trade_date = DateHelper.today()
             trade_date = DateHelper.normalize_to_yyyy_mm_dd(trade_date)
             
-            # 0. 更新实时K线数据（如果需要）
+            # 0. 统一更新实时K线数据（只执行一次）
             if update_real_time_data:
                 logger.info("-" * 60)
-                logger.info("步骤 0: 更新实时K线数据 (intraday_kline)")
+                logger.info("步骤 0: 统一更新实时K线数据 (intraday_kline)")
                 logger.info("-" * 60)
                 try:
                     self._update_real_time_data(trade_date)
@@ -122,25 +131,119 @@ class StrategyPipeline(BasePipeline):
                     logger.warning(f"更新实时K线数据失败，日期:{trade_date}，错误:{e}，继续执行策略筛选")
                     # 实时数据更新失败不应该阻止策略运行，只记录警告
             
-            # 确定历史数据结束日期（默认为trade_date，包含今天的数据）
-            if end_date is None:
-                # 包含今天的数据，以便检查历史数据中是否有今天的数据
-                end_date = trade_date
-            end_date = DateHelper.normalize_to_yyyy_mm_dd(end_date)
-            
             # 1. 获取股票代码列表
             if ts_codes is None or len(ts_codes) == 0:
                 try:
                     ts_codes = self.basic_info_loader.get_all_ts_codes()
                 except Exception as e:
                     logger.error(f"获取股票代码列表失败: {e}")
-                    return [] if isinstance(strategy.filter_stocks(pd.DataFrame()), list) else pd.DataFrame()
+                    # 返回空结果字典
+                    empty_results = {}
+                    for config in strategies_config:
+                        strategy_name = config.get('name', 'Unknown')
+                        try:
+                            strategy = config['strategy_class'](**config.get('strategy_params', {}))
+                            empty_result = strategy.filter_stocks(pd.DataFrame())
+                            empty_results[strategy_name] = empty_result
+                        except:
+                            empty_results[strategy_name] = []
+                    # 如果只有一个策略，返回单个结果；否则返回结果字典
+                    if len(strategies_config) == 1:
+                        return list(empty_results.values())[0]
+                    return empty_results
             
             if not ts_codes:
                 logger.warning("股票代码列表为空")
-                return [] if isinstance(strategy.filter_stocks(pd.DataFrame()), list) else pd.DataFrame()
+                empty_results = {}
+                for config in strategies_config:
+                    strategy_name = config.get('name', 'Unknown')
+                    try:
+                        strategy = config['strategy_class'](**config.get('strategy_params', {}))
+                        empty_result = strategy.filter_stocks(pd.DataFrame())
+                        empty_results[strategy_name] = empty_result
+                    except:
+                        empty_results[strategy_name] = []
+                # 如果只有一个策略，返回单个结果；否则返回结果字典
+                if len(strategies_config) == 1:
+                    return list(empty_results.values())[0]
+                return empty_results
             
-            # 2. 使用多进程并行处理每只股票的完整流程
+            # 2. 使用线程池并行运行所有策略
+            results_dict = {}
+            num_strategies = len(strategies_config)
+            
+            logger.info(f"开始并行运行 {num_strategies} 个策略")
+            
+            with ThreadPoolExecutor(max_workers=num_strategies) as executor:
+                # 提交所有策略任务
+                future_to_strategy = {
+                    executor.submit(self._run_single_strategy, config, ts_codes, trade_date, send_to_robots): config.get('name', 'Unknown')
+                    for config in strategies_config
+                }
+                
+                # 收集结果
+                for future in as_completed(future_to_strategy):
+                    strategy_name = future_to_strategy[future]
+                    try:
+                        name, result = future.result()
+                        results_dict[name] = result
+                        logger.info(f"策略 {name} 执行完成")
+                    except Exception as e:
+                        logger.error(f"策略 {strategy_name} 执行异常: {e}")
+                        # 返回空结果
+                        try:
+                            # 找到对应的策略配置
+                            config = next((c for c in strategies_config if c.get('name', 'Unknown') == strategy_name), strategies_config[0])
+                            strategy = config['strategy_class'](**config.get('strategy_params', {}))
+                            empty_result = strategy.filter_stocks(pd.DataFrame())
+                        except:
+                            empty_result = []
+                        results_dict[strategy_name] = empty_result
+            
+            logger.info(f"所有策略执行完成，共 {len(results_dict)} 个策略")
+            
+            # 如果只有一个策略，返回单个结果；否则返回结果字典
+            if len(strategies_config) == 1:
+                return list(results_dict.values())[0]
+            return results_dict
+            
+        except Exception as e:
+            logger.error(f"执行策略流水线失败: {e}")
+            raise PipelineException(f"执行策略流水线失败: {e}") from e
+    
+    def _run_single_strategy(
+        self,
+        strategy_config: Dict[str, Any],
+        ts_codes: List[str],
+        trade_date: str,
+        send_to_robots: bool = True
+    ) -> tuple:
+        """
+        执行单个策略
+        
+        Args:
+            strategy_config: 策略配置字典
+            ts_codes: 股票代码列表
+            trade_date: 交易日期
+            send_to_robots: 是否发送消息到机器人
+        
+        Returns:
+            tuple: (strategy_name, result) 策略名称和筛选结果
+        """
+        try:
+            strategy_class = strategy_config['strategy_class']
+            strategy_params = strategy_config.get('strategy_params', {})
+            start_date_days = strategy_config.get('start_date_days', 365)
+            strategy_name = strategy_config.get('name', strategy_class.__name__)
+            
+            # 创建策略实例
+            strategy = strategy_class(**strategy_params)
+            
+            # 计算开始日期
+            start_date = DateHelper.days_ago(start_date_days)
+            end_date = trade_date
+            
+            # 运行策略（不更新实时数据，因为已经统一更新了）
             result = self._run_complete_pipeline_multiprocess(
                 strategy=strategy,
                 ts_codes=ts_codes,
@@ -149,348 +252,27 @@ class StrategyPipeline(BasePipeline):
                 trade_date=trade_date
             )
             
-            # 3. 保存结果到文件
-            self._save_result(result, strategy.name, trade_date)
+            # 保存结果到文件
+            self._save_result(result, strategy_name, trade_date, send_to_robots=send_to_robots)
             
-            return result
-            
+            return (strategy_name, result)
         except Exception as e:
-            logger.error(f"执行策略流水线失败: {e}")
-            raise PipelineException(f"执行策略流水线失败: {e}") from e
-    
-    def _read_historical_kline(
-        self,
-        ts_codes: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        [已废弃] 读取历史日K线数据（按股票代码分离，不拼接）
-        
-        注意：此方法已废弃。新实现使用多进程在子进程中直接读取数据。
-        保留此方法仅用于向后兼容。
-        
-        Args:
-            ts_codes: 股票代码列表
-            start_date: 开始日期
-            end_date: 结束日期
-        
-        Returns:
-            Dict[str, pd.DataFrame]: 按股票代码分组的历史日K线数据字典
-                key: 股票代码, value: 该股票的历史K线数据
-        """
-        def read_single_stock(ts_code: str) -> tuple:
-            """读取单只股票的数据（用于多线程）"""
+            logger.error(f"策略 {strategy_config.get('name', 'Unknown')} 执行失败: {e}")
+            strategy_name = strategy_config.get('name', strategy_config.get('strategy_class', type).__name__)
+            # 返回空结果
             try:
-                df = self.daily_kline_loader.read(
-                    ts_code=ts_code,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-                return (ts_code, df)
-            except Exception as e:
-                logger.error(f"读取股票 {ts_code} 的历史数据失败: {e}")
-                return (ts_code, pd.DataFrame())
-        
-        if ts_codes is None or len(ts_codes) == 0:
-            # 读取所有股票的数据
-            # 先获取所有股票代码
-            all_df = self.daily_kline_loader.read(
-                ts_code=None,
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            if all_df.empty:
-                return {}
-            
-            # 按股票代码分组，返回字典
-            result_dict = {}
-            for ts_code, group_df in all_df.groupby('ts_code'):
-                result_dict[ts_code] = group_df.reset_index(drop=True)
-            
-            return result_dict
-        else:
-            # 读取指定股票的数据，使用多线程加速
-            result_dict = {}
-            
-            if self.use_multithreading and len(ts_codes) > 1:
-                # 使用多线程并行读取
-                with ThreadPoolExecutor(max_workers=self.thread_workers) as executor:
-                    future_to_ts_code = {
-                        executor.submit(read_single_stock, ts_code): ts_code
-                        for ts_code in ts_codes
-                    }
-                    
-                    for future in as_completed(future_to_ts_code):
-                        ts_code = future_to_ts_code[future]
-                        try:
-                            code, df = future.result()
-                            if not df.empty:
-                                result_dict[code] = df
-                        except Exception as e:
-                            logger.error(f"读取股票 {ts_code} 的历史数据时出错: {e}")
-            else:
-                # 串行读取
-                for ts_code in ts_codes:
-                    df = self.daily_kline_loader.read(
-                        ts_code=ts_code,
-                        start_date=start_date,
-                        end_date=end_date
-                    )
-                    if not df.empty:
-                        result_dict[ts_code] = df
-            
-            return result_dict
-    
-    def _read_intraday_kline(
-        self,
-        ts_codes: Optional[List[str]] = None,
-        trade_date: Optional[str] = None
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        [已废弃] 读取当天实时k线数据（按股票代码分离，不拼接）
-        
-        注意：此方法已废弃。新实现使用多进程在子进程中直接读取数据。
-        保留此方法仅用于向后兼容。
-        
-        Args:
-            ts_codes: 股票代码列表
-            trade_date: 交易日期
-        
-        Returns:
-            Dict[str, pd.DataFrame]: 按股票代码分组的实时k线数据字典
-                key: 股票代码, value: 该股票的实时k线数据
-        """
-        def read_single_stock(ts_code: str) -> tuple:
-            """读取单只股票的实时数据（用于多线程）"""
-            try:
-                df = self.intraday_kline_loader.read(
-                    ts_code=ts_code,
-                    trade_date=trade_date
-                )
-                return (ts_code, df)
-            except Exception as e:
-                logger.error(f"读取股票 {ts_code} 的实时数据失败: {e}")
-                return (ts_code, pd.DataFrame())
-        
-        if ts_codes is None or len(ts_codes) == 0:
-            # 读取所有股票的数据
-            all_df = self.intraday_kline_loader.read(
-                ts_code=None,
-                trade_date=trade_date
-            )
-            
-            if all_df.empty:
-                return {}
-            
-            # 按股票代码分组，返回字典
-            result_dict = {}
-            for ts_code, group_df in all_df.groupby('ts_code'):
-                result_dict[ts_code] = group_df.reset_index(drop=True)
-            
-            return result_dict
-        else:
-            # 读取指定股票的数据，使用多线程加速
-            result_dict = {}
-            
-            if self.use_multithreading and len(ts_codes) > 1:
-                # 使用多线程并行读取
-                with ThreadPoolExecutor(max_workers=self.thread_workers) as executor:
-                    future_to_ts_code = {
-                        executor.submit(read_single_stock, ts_code): ts_code
-                        for ts_code in ts_codes
-                    }
-                    
-                    for future in as_completed(future_to_ts_code):
-                        ts_code = future_to_ts_code[future]
-                        try:
-                            code, df = future.result()
-                            if not df.empty:
-                                result_dict[code] = df
-                        except Exception as e:
-                            logger.error(f"读取股票 {ts_code} 的实时数据时出错: {e}")
-            else:
-                # 串行读取
-                for ts_code in ts_codes:
-                    df = self.intraday_kline_loader.read(
-                        ts_code=ts_code,
-                        trade_date=trade_date
-                    )
-                    if not df.empty:
-                        result_dict[ts_code] = df
-            
-            return result_dict
-    
-    def _prepare_final_dataframe(self, historical_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        准备最终DataFrame（仅使用历史数据时）
-        
-        将历史数据的前复权价格字段转换为标准列名
-        
-        Args:
-            historical_df: 历史日K线数据
-        
-        Returns:
-            pd.DataFrame: 准备好的DataFrame
-        """
-        df = historical_df.copy()
-        
-        # 如果存在前复权价格字段，使用它们替换标准价格字段
-        if 'close_qfq' in df.columns:
-            df['close'] = df['close_qfq']
-        if 'open_qfq' in df.columns:
-            df['open'] = df['open_qfq']
-        if 'high_qfq' in df.columns:
-            df['high'] = df['high_qfq']
-        if 'low_qfq' in df.columns:
-            df['low'] = df['low_qfq']
-        
-        # 确保必需的列存在
-        required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            logger.warning(f"数据缺少必需的列: {missing_columns}")
-        
-        return df
-    
-    def _merge_historical_and_realtime_single_stock(
-        self,
-        historical_df: pd.DataFrame,
-        daily_from_intraday: pd.DataFrame,
-        trade_date: str
-    ) -> pd.DataFrame:
-        """
-        拼接单只股票的历史k线和当天实时k线
-        
-        注意：此方法仅在历史数据中没有今天的数据时被调用。
-        如果历史数据中有今天的数据，应该优先使用历史数据，不会调用此方法。
-        
-        Args:
-            historical_df: 单只股票的历史日K线数据（不包含今天的数据，已过滤）
-            daily_from_intraday: 单只股票的当天实时k线聚合后的日K线数据
-            trade_date: 交易日期
-        
-        Returns:
-            pd.DataFrame: 拼接后的DataFrame
-        """
-        # 如果历史数据为空，直接返回当天数据
-        if historical_df.empty:
-            return daily_from_intraday.copy()
-        
-        # 如果当天数据为空，直接返回历史数据
-        if daily_from_intraday.empty:
-            return self._prepare_final_dataframe(historical_df)
-        
-        # 准备历史数据：使用前复权价格字段
-        historical_prepared = self._prepare_final_dataframe(historical_df)
-        
-        # 准备当天数据：直接使用聚合后的数据
-        daily_prepared = daily_from_intraday.copy()
-        
-        # 确保当天数据包含所有必需的列
-        required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
-        for col in required_columns:
-            if col not in daily_prepared.columns:
-                if col == 'vol' and 'volume' in daily_prepared.columns:
-                    daily_prepared['vol'] = daily_prepared['volume']
-                elif col == 'amount' and 'amount' in daily_prepared.columns:
-                    pass  # amount已经存在
-                else:
-                    logger.warning(f"当天数据缺少列: {col}")
-        
-        # 确保trade_date是datetime类型
-        if not pd.api.types.is_datetime64_any_dtype(daily_prepared['trade_date']):
-            daily_prepared['trade_date'] = pd.to_datetime(daily_prepared['trade_date'], errors='coerce')
-        
-        # 过滤掉历史数据中与当天日期相同的数据（避免重复）
-        trade_date_obj = pd.to_datetime(trade_date)
-        historical_prepared = historical_prepared[
-            historical_prepared['trade_date'] < trade_date_obj
-        ]
-        
-        # 拼接数据
-        # 选择需要的列
-        common_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
-        available_columns = [col for col in common_columns if col in historical_prepared.columns and col in daily_prepared.columns]
-        
-        historical_selected = historical_prepared[available_columns].copy()
-        daily_selected = daily_prepared[available_columns].copy()
-        
-        # 合并
-        merged_df = pd.concat([historical_selected, daily_selected], ignore_index=True)
-        
-        # 按日期排序
-        merged_df = merged_df.sort_values('trade_date').reset_index(drop=True)
-        
-        return merged_df
-    
-    def _merge_historical_and_realtime(
-        self,
-        historical_df: pd.DataFrame,
-        daily_from_intraday: pd.DataFrame,
-        trade_date: str
-    ) -> pd.DataFrame:
-        """
-        拼接历史k线和当天实时k线
-        
-        Args:
-            historical_df: 历史日K线数据（包含前复权价格字段）
-            daily_from_intraday: 当天实时k线聚合后的日K线数据
-            trade_date: 交易日期
-        
-        Returns:
-            pd.DataFrame: 拼接后的DataFrame
-        """
-        # 准备历史数据：使用前复权价格字段
-        historical_prepared = self._prepare_final_dataframe(historical_df)
-        
-        # 准备当天数据：直接使用聚合后的数据
-        # 确保列名一致
-        daily_prepared = daily_from_intraday.copy()
-        
-        # 确保当天数据包含所有必需的列
-        required_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
-        for col in required_columns:
-            if col not in daily_prepared.columns:
-                if col == 'vol' and 'volume' in daily_prepared.columns:
-                    daily_prepared['vol'] = daily_prepared['volume']
-                elif col == 'amount' and 'amount' in daily_prepared.columns:
-                    pass  # amount已经存在
-                else:
-                    logger.warning(f"当天数据缺少列: {col}")
-        
-        # 确保trade_date是datetime类型
-        if not pd.api.types.is_datetime64_any_dtype(daily_prepared['trade_date']):
-            daily_prepared['trade_date'] = pd.to_datetime(daily_prepared['trade_date'], errors='coerce')
-        
-        # 过滤掉历史数据中与当天日期相同的数据（避免重复）
-        trade_date_obj = pd.to_datetime(trade_date)
-        historical_prepared = historical_prepared[
-            historical_prepared['trade_date'] < trade_date_obj
-        ]
-        
-        # 拼接数据
-        # 选择需要的列
-        common_columns = ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
-        available_columns = [col for col in common_columns if col in historical_prepared.columns and col in daily_prepared.columns]
-        
-        historical_selected = historical_prepared[available_columns].copy()
-        daily_selected = daily_prepared[available_columns].copy()
-        
-        # 合并
-        merged_df = pd.concat([historical_selected, daily_selected], ignore_index=True)
-        
-        # 按股票代码和日期排序
-        merged_df = merged_df.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
-        
-        return merged_df
+                strategy = strategy_config['strategy_class'](**strategy_config.get('strategy_params', {}))
+                empty_result = strategy.filter_stocks(pd.DataFrame())
+            except:
+                empty_result = []
+            return (strategy_name, empty_result)
     
     def _save_result(
         self,
         result: Union[List[str], pd.DataFrame],
         strategy_name: str,
-        trade_date: str
+        trade_date: str,
+        send_to_robots: bool = True
     ) -> None:
         """
         保存筛选结果到文件
@@ -555,7 +337,10 @@ class StrategyPipeline(BasePipeline):
                 result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
             
             # 发送消息到机器人
-            self._send_stock_message(result_df, strategy_name, trade_date)
+            if send_to_robots:
+                self._send_stock_message(result_df, strategy_name, trade_date)
+            else:
+                logger.info("不发送消息到机器人")
             
         except Exception as e:
             logger.error(f"保存结果失败: {e}")
@@ -627,7 +412,9 @@ class StrategyPipeline(BasePipeline):
         trade_date: str
     ) -> Union[List[str], pd.DataFrame]:
         """
-        使用多进程并行运行完整流程（每只股票一个进程，完成从数据读取到策略筛选的完整流程）
+        使用多进程并行运行完整流程（每个进程处理一批股票，完成从数据读取到策略筛选的完整流程）
+        
+        优化：每个进程只创建一次策略实例，然后在该进程中循环处理多只股票，减少重复初始化。
         
         Args:
             strategy: 策略实例
@@ -649,11 +436,20 @@ class StrategyPipeline(BasePipeline):
         strategy_class = strategy.__class__
         strategy_params = self._extract_strategy_params(strategy)
         
-        # 准备任务参数：每只股票一个任务
-        tasks = [
-            (ts_code, strategy_class, strategy_params, start_date, end_date, trade_date, self.config)
-            for ts_code in ts_codes
-        ]
+        # 计算批次大小
+        if self.batch_size is None:
+            # 自动计算：确保每个进程至少处理一只股票，但尽量让每个进程处理多只股票
+            batch_size = max(1, num_stocks // self.max_workers)
+        else:
+            batch_size = max(1, self.batch_size)
+        
+        # 将股票列表分批
+        batches = []
+        for i in range(0, num_stocks, batch_size):
+            batch = ts_codes[i:i + batch_size]
+            batches.append(batch)
+        
+        logger.info(f"将 {num_stocks} 只股票分为 {len(batches)} 批，每批约 {batch_size} 只股票")
         
         # 使用进程池并行处理
         results = []
@@ -666,36 +462,42 @@ class StrategyPipeline(BasePipeline):
         }
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有任务
-            future_to_ts_code = {
-                executor.submit(process_single_stock_complete, ts_code, strategy_class, strategy_params, 
-                               start_date, end_date, trade_date, self.config): ts_code
-                for ts_code, strategy_class, strategy_params, start_date, end_date, trade_date, config in tasks
+            # 提交所有批次任务
+            future_to_batch = {
+                executor.submit(process_batch_stocks_complete, batch, strategy_class, strategy_params, 
+                               start_date, end_date, trade_date, self.config): batch
+                for batch in batches
             }
             
             # 使用tqdm显示进度条
             with tqdm(total=num_stocks, desc=f"处理股票 ({strategy.name})", unit="只") as pbar:
                 # 收集结果
-                for future in as_completed(future_to_ts_code):
-                    ts_code = future_to_ts_code[future]
+                for future in as_completed(future_to_batch):
+                    batch = future_to_batch[future]
                     try:
-                        result = future.result()
-                        if result is not None:
-                            results.append(result)
-                            stats['strategy_filtered'] += 1
+                        batch_results = future.result()
+                        # batch_results 是一个列表，包含该批次每只股票的结果
+                        for result in batch_results:
+                            if result is not None:
+                                results.append(result)
+                                stats['strategy_filtered'] += 1
+                            else:
+                                stats['no_data'] += 1
                             pbar.set_postfix({"筛选": len(results)})
-                        else:
-                            stats['no_data'] += 1
+                            pbar.update(1)
                     except ValueError as e:
                         # 这是数据缺失的错误
                         if "既没有历史K线数据" in str(e) or "实时K线数据聚合失败" in str(e):
-                            stats['no_today_data'] += 1
-                        logger.debug(f"[DEBUG] 股票 {ts_code} 数据问题: {e}")
+                            stats['no_today_data'] += len(batch)
+                        # 更新进度条
+                        for _ in batch:
+                            pbar.update(1)
                     except Exception as e:
-                        stats['errors'] += 1
-                        logger.error(f"处理股票 {ts_code} 时出错: {e}")
-                    finally:
-                        pbar.update(1)
+                        stats['errors'] += len(batch)
+                        logger.error(f"处理批次时出错: {e}")
+                        # 更新进度条
+                        for _ in batch:
+                            pbar.update(1)
         
         # 输出统计信息
         logger.info("=" * 60)
@@ -707,85 +509,6 @@ class StrategyPipeline(BasePipeline):
         logger.info(f"策略筛选通过: {stats['strategy_filtered']}")
         logger.info(f"处理错误: {stats['errors']}")
         logger.info("=" * 60)
-        
-        # 合并结果
-        if not results:
-            return [] if isinstance(strategy.filter_stocks(pd.DataFrame()), list) else pd.DataFrame()
-        
-        # 判断结果类型并合并
-        if isinstance(results[0], list):
-            # 如果结果是列表，合并所有列表
-            merged_result = []
-            for r in results:
-                if isinstance(r, list):
-                    merged_result.extend(r)
-            return merged_result
-        elif isinstance(results[0], pd.DataFrame):
-            # 如果结果是DataFrame，合并所有DataFrame
-            return pd.concat(results, ignore_index=True)
-        else:
-            # 其他情况，返回空结果
-            return [] if isinstance(strategy.filter_stocks(pd.DataFrame()), list) else pd.DataFrame()
-    
-    def _run_strategy_multiprocess_separated(
-        self,
-        strategy: BaseStrategy,
-        stock_data_dict: Dict[str, pd.DataFrame]
-    ) -> Union[List[str], pd.DataFrame]:
-        """
-        使用多进程并行运行策略（使用分离的股票数据）
-        
-        注意：此方法已废弃，保留用于向后兼容。
-        新代码应使用 _run_complete_pipeline_multiprocess 方法。
-        
-        Args:
-            strategy: 策略实例
-            stock_data_dict: 按股票代码分组的数据字典
-        
-        Returns:
-            Union[List[str], pd.DataFrame]: 策略筛选结果
-        """
-        if not stock_data_dict:
-            logger.warning("数据为空，无法运行策略")
-            return [] if isinstance(strategy.filter_stocks(pd.DataFrame()), list) else pd.DataFrame()
-        
-        num_stocks = len(stock_data_dict)
-        logger.info(f"使用多进程处理 {num_stocks} 只股票，进程数: {self.max_workers}")
-        
-        # 获取策略类和参数（用于在子进程中重建策略实例）
-        strategy_class = strategy.__class__
-        strategy_params = self._extract_strategy_params(strategy)
-        
-        # 准备任务参数：直接使用分离的数据
-        tasks = [
-            (ts_code, stock_df, strategy_class, strategy_params)
-            for ts_code, stock_df in stock_data_dict.items()
-        ]
-        
-        # 使用进程池并行处理
-        results = []
-        
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有任务
-            future_to_ts_code = {
-                executor.submit(process_single_stock, ts_code, stock_df, strategy_class, strategy_params): ts_code
-                for ts_code, stock_df, strategy_class, strategy_params in tasks
-            }
-            
-            # 使用tqdm显示进度条
-            with tqdm(total=num_stocks, desc="处理股票", unit="只") as pbar:
-                # 收集结果
-                for future in as_completed(future_to_ts_code):
-                    ts_code = future_to_ts_code[future]
-                    try:
-                        result = future.result()
-                        if result is not None:
-                            results.append(result)
-                            pbar.set_postfix({"筛选": len(results)})
-                    except Exception as e:
-                        logger.error(f"处理股票 {ts_code} 时出错: {e}")
-                    finally:
-                        pbar.update(1)
         
         # 合并结果
         if not results:

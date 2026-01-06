@@ -168,7 +168,6 @@ class KDJStrategy(BaseStrategy):
             )
         )
         
-        logger.info(df_copy)
         return df_copy
 
 

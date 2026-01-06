@@ -141,7 +141,6 @@ class IntradayKlineLoader(BaseLoader):
                 results = query.all()
                 
                 if not results:
-                    logger.info("数据库中未找到分时K线数据")
                     return pd.DataFrame()
                 
                 # 转换为DataFrame
@@ -152,7 +151,6 @@ class IntradayKlineLoader(BaseLoader):
                 if "trade_date" in df.columns:
                     df["trade_date"] = pd.to_datetime(df["trade_date"], errors='coerce')
                 
-                logger.info(f"从数据库读取到 {len(df)} 条分时K线数据")
                 return df
                 
         except Exception as e:

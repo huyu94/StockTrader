@@ -21,12 +21,12 @@ class Aggregator:
     2. 支持多种聚合方式（开高低收、成交量、成交额等）
     
     聚合规则：
-    - 开盘价：当日第一笔交易价格
+    - 开盘价：当日最后一笔交易价格
     - 收盘价：当日最后一笔交易价格
-    - 最高价：当日所有分时数据的最高价
-    - 最低价：当日所有分时数据的最低价
-    - 成交量：当日所有分时数据的成交量之和
-    - 成交额：当日所有分时数据的成交额之和
+    - 最高价：当日最后一笔交易价格
+    - 最低价：当日最后一笔交易价格
+    - 成交量：当日最后一笔交易的成交量
+    - 成交额：当日最后一笔交易的成交额
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -37,7 +37,6 @@ class Aggregator:
             config: 配置字典，包含聚合规则等配置
         """
         self.config = config or {}
-        logger.debug("初始化聚合计算器")
     
     def aggregate_to_daily(self, intraday_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -56,12 +55,12 @@ class Aggregator:
             pd.DataFrame: 日K线数据，包含以下列：
                 - ts_code: 股票代码
                 - trade_date: 交易日期
-                - open: 开盘价（当日第一笔交易价格）
+                - open: 开盘价（当日最后一笔交易价格）
                 - close: 收盘价（当日最后一笔交易价格）
-                - high: 最高价（当日最高价格）
-                - low: 最低价（当日最低价格）
-                - vol: 成交量（当日成交量之和）
-                - amount: 成交额（当日成交额之和）
+                - high: 最高价（当日最后一笔交易价格）
+                - low: 最低价（当日最后一笔交易价格）
+                - vol: 成交量（当日最后一笔交易的成交量）
+                - amount: 成交额（当日最后一笔交易的成交额）
         """
         if intraday_df is None or intraday_df.empty:
             logger.warning("分时数据为空，无法聚合")
@@ -73,7 +72,7 @@ class Aggregator:
         if missing_columns:
             raise ValueError(f"分时数据缺少必需的列: {missing_columns}")
         
-        logger.info(f"开始聚合分时数据为日K线，输入数据量: {len(intraday_df)}")
+        # logger.info(f"开始聚合分时数据为日K线，输入数据量: {len(intraday_df)}")
         
         # 确保按时间排序
         intraday_df = intraday_df.sort_values(['ts_code', 'trade_date', 'time']).reset_index(drop=True)
@@ -82,36 +81,26 @@ class Aggregator:
         daily_data = []
         
         for (ts_code, trade_date), group in intraday_df.groupby(['ts_code', 'trade_date']):
-            # 开盘价：第一笔交易价格
-            open_price = group.iloc[0]['price'] if len(group) > 0 else None
-            
-            # 收盘价：最后一笔交易价格
-            close_price = group.iloc[-1]['price'] if len(group) > 0 else None
-            
-            # 最高价：所有价格中的最大值
-            high_price = group['price'].max() if len(group) > 0 else None
-            
-            # 最低价：所有价格中的最小值
-            low_price = group['price'].min() if len(group) > 0 else None
-            
-            # 成交量：所有成交量之和
-            total_volume = group['volume'].sum() if len(group) > 0 else 0
-            
-            # 成交额：所有成交额之和
-            total_amount = group['amount'].sum() if len(group) > 0 else 0.0
+            # 所有字段都使用最后一笔交易数据
+            if len(group) > 0:
+                last_record = group.iloc[-1]
+                open_price = last_record['price']
+                close_price = last_record['price']
+                high_price = last_record['price']
+                low_price = last_record['price']
+                total_volume = last_record['volume']
+                total_amount = last_record['amount']
+            else:
+                open_price = None
+                close_price = None
+                high_price = None
+                low_price = None
+                total_volume = 0
+                total_amount = 0.0
             
             # 验证数据有效性
             if pd.isna(open_price) or pd.isna(close_price) or pd.isna(high_price) or pd.isna(low_price):
                 logger.warning(f"股票 {ts_code} 在日期 {trade_date} 的价格数据不完整，跳过")
-                continue
-            
-            # 验证 OHLC 关系
-            if high_price < low_price or high_price < open_price or high_price < close_price:
-                logger.warning(f"股票 {ts_code} 在日期 {trade_date} 的 OHLC 关系异常，跳过")
-                continue
-            
-            if low_price > open_price or low_price > close_price:
-                logger.warning(f"股票 {ts_code} 在日期 {trade_date} 的 OHLC 关系异常，跳过")
                 continue
             
             daily_data.append({
@@ -141,7 +130,7 @@ class Aggregator:
         # 按股票代码和日期排序
         result_df = result_df.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
         
-        logger.info(f"聚合完成，共生成 {len(result_df)} 条日K线数据")
+        logger.debug(f"聚合完成，共生成 {len(result_df)} 条日K线数据")
         return result_df
     
     def aggregate_with_custom_rules(
