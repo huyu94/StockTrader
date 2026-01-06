@@ -1,6 +1,8 @@
 services:
   stocktrader:
-    build: .
+    build:
+      context: .
+    image: stocktrader:${IMAGE_VERSION:-latest}
     container_name: stocktrader
     restart: always
     # 明确指定从 .env 文件读取环境变量
