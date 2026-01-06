@@ -1,25 +1,24 @@
-version: '3.8'
-
 services:
   stocktrader:
     build: .
     container_name: stocktrader
-    volumes:
-      # 挂载代码目录（开发模式，代码修改立即生效）
-      - .:/app
-      # 挂载数据目录（持久化数据）
-      - ./data:/app/data
-      # 挂载日志目录
-      - ./logs:/app/logs
-      # 挂载输出目录
-      - ./output:/app/output
+    restart: always
+    # 明确指定从 .env 文件读取环境变量
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      # 如果需要环境变量，可以在这里设置
-      # - TUSHARE_TOKEN=${TUSHARE_TOKEN}
-    # 覆盖默认命令（如果需要）
-    # command: uv run python main.py
-    # 或者进入交互式 shell
-    # command: /bin/bash
+      - TZ=Asia/Shanghai
+      # MySQL 配置（从 .env 文件读取）
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_CHARSET=${MYSQL_CHARSET:-utf8mb4}
+      # Tushare API Token
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      # 消息机器人 Token（可选）
+      - MESSAGE_ROBOT_ACCESS_TOKEN=${MESSAGE_ROBOT_ACCESS_TOKEN:-}
 

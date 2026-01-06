@@ -22,9 +22,13 @@ RUN uv sync --frozen
 # 复制项目文件
 COPY . .
 
+# 创建必需的目录
+RUN mkdir -p /app/data /app/logs /app/output
+
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV TZ=Asia/Shanghai
 
 # 默认命令（可以根据需要修改）
 CMD ["uv", "run", "python", "main.py"]
