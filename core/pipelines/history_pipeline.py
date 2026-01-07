@@ -494,7 +494,8 @@ class HistoryPipeline(BasePipeline):
             provider = self.daily_kline_collector._get_provider()
             
             # 使用 provider.daily 方法直接获取单只股票的历史数据
-            raw_data = provider.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            # raw_data = provider.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            raw_data = provider.pro_bar(ts_code=ts_code, start_date=start_date, end_date=end_date,adj=None)
             
             if raw_data is None or raw_data.empty:
                 logger.warning(f"未采集到股票 {ts_code} 的日K线数据")

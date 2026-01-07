@@ -9,10 +9,11 @@
    - 如果运行在20日线上方，检查是否接近20日线且未跌破
    - 如果运行在30日线上方，检查是否接近30日线且未跌破
    - 如果运行在60日线上方，检查是否接近60日线且未跌破
+4. 30个交易日内，最低点到最高点的涨幅必须大于20%（确保股票有足够的波动性和上涨潜力）
 
 买入条件：
-- 同时满足以上三个条件时，认为符合买入条件
-- 这是一个寻找超卖+缩量+价格回归均线且未跌破的策略，适合捕捉反弹机会
+- 同时满足以上四个条件时，认为符合买入条件
+- 这是一个寻找超卖+缩量+价格回归均线且未跌破+有上涨潜力的策略，适合捕捉反弹机会
 """
 
 import pandas as pd
@@ -36,12 +37,14 @@ class KDJStrategy(BaseStrategy):
        - 如果运行在MA30上方，检查是否接近MA30且未跌破
        - 如果运行在MA60上方，检查是否接近MA60且未跌破
        - 优先级：MA20 > MA30 > MA60
+    4. 30日价格波动：30个交易日内最低点到最高点的涨幅 > 20%，确保股票有足够的波动性和上涨潜力
     
     适用场景：
     - 适合捕捉超跌反弹机会
     - 适合在震荡市中使用
     - 需要结合其他指标确认买入时机
     - 根据价格运行位置动态调整均线检查，更灵活
+    - 通过30日涨幅条件筛选出有上涨潜力的股票
     """
     
     def __init__(
@@ -50,6 +53,8 @@ class KDJStrategy(BaseStrategy):
         vol_period: int = 20, 
         j_threshold: float = 5.0,
         ma_tolerance: float = 0.03,
+        price_range_period: int = 30,
+        price_range_threshold: float = 0.30,
         name: Optional[str] = None
     ):
         """
@@ -60,6 +65,8 @@ class KDJStrategy(BaseStrategy):
             vol_period: 成交量比较周期，默认20
             j_threshold: J值阈值，默认5.0（J值必须小于等于此值）
             ma_tolerance: 接近均线的容忍度，默认0.03（3%），表示价格在均线的±3%范围内算接近
+            price_range_period: 价格波动周期，默认30（计算30个交易日内的价格波动）
+            price_range_threshold: 价格涨幅阈值，默认0.2（20%），30日内最低点到最高点的涨幅必须大于此值
             name: 策略名称，默认"少妇战法"
         """
         super().__init__(name=name or "少妇战法")
@@ -67,13 +74,15 @@ class KDJStrategy(BaseStrategy):
         self.vol_period = vol_period
         self.j_threshold = j_threshold
         self.ma_tolerance = ma_tolerance
+        self.price_range_period = price_range_period
+        self.price_range_threshold = price_range_threshold
         self.indicator_calculator = IndicatorCalculator()
     
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         计算技术指标
         
-        计算KDJ指标、均线指标和成交量相关指标
+        计算KDJ指标、均线指标、成交量相关指标和30日价格波动指标
         
         Args:
             df: 股票K线数据DataFrame
@@ -210,6 +219,20 @@ class KDJStrategy(BaseStrategy):
                 )
             )
             
+            # 5. 计算30日价格波动指标
+            # 计算30日滚动最高价
+            group_df['high_max_30'] = group_df['high'].rolling(window=self.price_range_period).max()
+            # 计算30日滚动最低价
+            group_df['low_min_30'] = group_df['low'].rolling(window=self.price_range_period).min()
+            # 计算30日内最低点到最高点的涨幅
+            group_df['price_range_ratio'] = np.where(
+                group_df['low_min_30'] > 0,
+                (group_df['high_max_30'] - group_df['low_min_30']) / group_df['low_min_30'],
+                np.nan
+            )
+            # 标记是否满足30日涨幅条件
+            group_df['price_range_ok'] = group_df['price_range_ratio'] > self.price_range_threshold
+            
             result_list.append(group_df)
         
         # 合并所有股票的结果
@@ -227,6 +250,7 @@ class KDJStrategy(BaseStrategy):
         1. KDJ的J值 <= 阈值（超卖信号）
         2. 当前成交量 < 前20日最大成交量的1/2（缩量信号）
         3. 收盘价接近MA20或MA30或MA60且未跌破（价格回归均线）
+        4. 30个交易日内最低点到最高点的涨幅 > 阈值（默认20%）
         
         Args:
             df: 包含技术指标的K线数据DataFrame
@@ -238,8 +262,8 @@ class KDJStrategy(BaseStrategy):
             logger.warning("数据为空，无法筛选股票")
             return pd.DataFrame(columns=['ts_code', 'trade_date'])
         
-        # 需要至少60个交易日的数据来计算所有指标
-        min_period = max(60, self.vol_period, self.kdj_period)
+        # 需要至少60个交易日的数据来计算所有指标（包括30日价格波动）
+        min_period = max(60, self.vol_period, self.kdj_period, self.price_range_period)
         
         result_list = []
         debug_stats = {
@@ -249,6 +273,7 @@ class KDJStrategy(BaseStrategy):
             'condition1_fail': 0,
             'condition2_fail': 0,
             'condition3_fail': 0,
+            'condition4_fail': 0,
             'passed': 0
         }
         
@@ -279,6 +304,8 @@ class KDJStrategy(BaseStrategy):
                 missing_indicators.append('ma30')
             if pd.isna(latest_row.get('ma60')):
                 missing_indicators.append('ma60')
+            if pd.isna(latest_row.get('price_range_ratio')):
+                missing_indicators.append('price_range_ratio')
             
             if missing_indicators:
                 debug_stats['missing_indicators'] += 1
@@ -296,6 +323,10 @@ class KDJStrategy(BaseStrategy):
             near_ma = latest_row.get('near_ma', False)
             condition3 = bool(near_ma) if not pd.isna(near_ma) else False
             
+            # 条件4：30日内最低点到最高点涨幅 > 阈值
+            price_range_ratio = latest_row.get('price_range_ratio', 0)
+            condition4 = price_range_ratio > self.price_range_threshold if not pd.isna(price_range_ratio) else False
+            
             # 记录条件检查结果
             if not condition1:
                 debug_stats['condition1_fail'] += 1
@@ -303,9 +334,11 @@ class KDJStrategy(BaseStrategy):
                 debug_stats['condition2_fail'] += 1
             if not condition3:
                 debug_stats['condition3_fail'] += 1
+            if not condition4:
+                debug_stats['condition4_fail'] += 1
             
-            # 三个条件都必须满足
-            if condition1 and condition2 and condition3:
+            # 四个条件都必须满足
+            if condition1 and condition2 and condition3 and condition4:
                 debug_stats['passed'] += 1
                 # 获取详细信息用于输出
                 close_price = latest_row.get('close', 0)
@@ -337,7 +370,8 @@ class KDJStrategy(BaseStrategy):
                     'ma20': ma20,
                     'ma30': ma30,
                     'ma60': ma60,
-                    'near_ma': ', '.join(ma_info) if ma_info else 'None'
+                    'near_ma': ', '.join(ma_info) if ma_info else 'None',
+                    'price_range_ratio': price_range_ratio
                 })
         
         

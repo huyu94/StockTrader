@@ -17,6 +17,7 @@ from core.orchestrator.scheduler import TaskScheduler
 from core.pipelines.strategy_pipeline import StrategyPipeline
 from core.strategies.kdj_strategy import KDJStrategy
 from core.strategies.lianyang_strategy import LianyangStrategy
+from core.strategies.uptrend_pullback_strategy import UptrendPullbackStrategy
 from utils.setup_logger import setup_logger
 from utils.date_helper import DateHelper
 
@@ -34,6 +35,18 @@ STRATEGIES_CONFIG = [
         },
         'start_date_days': 365,  # 使用最近365天的数据
         'name': '少妇战法'
+    },
+    {
+        'strategy_class': UptrendPullbackStrategy,
+        'strategy_params': {
+            'kdj_period': 9,
+            'j_threshold': 5.0,
+            'vol_period': 20,
+            'vol_shrink_ratio': 0.5,
+            'ma_tolerance': 0.03
+        },
+        'start_date_days': 365,  # 使用最近365天的数据
+        'name': '上升趋势回调买入'
     },
     # {
     #     'strategy_class': LianyangStrategy,
@@ -76,8 +89,8 @@ def run_all_strategies():
             strategies_config=STRATEGIES_CONFIG,
             ts_codes=None,  # 处理所有股票
             trade_date=None,  # 使用今天
-            update_real_time_data=True,  # 统一更新实时K线数据
-            send_to_robots=True
+            update_real_time_data=False,  # 统一更新实时K线数据
+            send_to_robots=False
         )
         
         # 打印结果摘要

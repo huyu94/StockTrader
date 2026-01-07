@@ -13,6 +13,7 @@ from core.pipelines.history_pipeline import HistoryPipeline
 from core.pipelines.daily_pipeline import DailyPipeline
 from core.pipelines.strategy_pipeline import StrategyPipeline
 from core.strategies.kdj_strategy import KDJStrategy
+from core.strategies.uptrend_pullback_strategy import UptrendPullbackStrategy
 from core.orchestrator.scheduler import TaskScheduler
 from core.loaders.trade_calendar import TradeCalendarLoader
 from utils.setup_logger import setup_logger
@@ -32,6 +33,18 @@ STRATEGIES_CONFIG = [
         },
         'start_date_days': 365,  # 使用最近365天的数据
         'name': '少妇战法'
+    },
+    {
+        'strategy_class': UptrendPullbackStrategy,
+        'strategy_params': {
+            'kdj_period': 9,
+            'j_threshold': 5.0,
+            'vol_period': 20,
+            'vol_shrink_ratio': 0.5,
+            'ma_tolerance': 0.03
+        },
+        'start_date_days': 365,  # 使用最近365天的数据
+        'name': '上升趋势回调买入'
     },
     # 可以添加更多策略配置
     # {
