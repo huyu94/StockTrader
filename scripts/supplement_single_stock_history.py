@@ -16,7 +16,7 @@ from core.pipelines.history_pipeline import HistoryPipeline
 from utils.setup_logger import setup_logger
 
 # 配置参数
-TS_CODE = "603828.SH"  # 股票代码
+TS_CODE = "300997.SZ"  # 股票代码
 START_DATE = "2015-01-01"  # 开始日期
 END_DATE = "2026-01-07"  # 结束日期
 
@@ -31,21 +31,17 @@ def main():
         
         # 执行单股票历史数据补全
         # 注意：每次循环创建新的 pipeline 实例，因为 run_single_stock 会在 finally 中关闭线程池
-        for ts_code in TS_CODES_POOL:
-            logger.info(f"开始处理股票: {ts_code}")
-            pipeline = HistoryPipeline()
-            try:
-                pipeline.run_single_stock(
-                    ts_code=ts_code,
-                    start_date=START_DATE,
-                    end_date=END_DATE
-                )
-                logger.info(f"股票 {ts_code} 处理完成")
-            except Exception as e:
-                logger.error(f"处理股票 {ts_code} 失败: {e}")
-                # 继续处理下一个股票
-                continue
-        
+        logger.info(f"开始处理股票: {TS_CODE}")
+        pipeline = HistoryPipeline()
+        try:
+            pipeline.run_single_stock(
+                ts_code=TS_CODE,
+                start_date=START_DATE,
+                end_date=END_DATE
+            )
+            logger.info(f"股票 {TS_CODE} 处理完成")
+        except Exception as e:
+            logger.error(f"处理股票 {TS_CODE} 失败: {e}")        
     except Exception as e:
         logger.error(f"单股票历史数据补充失败: {e}")
         raise

@@ -87,8 +87,8 @@ def run_all_strategies():
         # 并行运行所有策略（内部会统一更新数据一次）
         results = pipeline.run(
             strategies_config=STRATEGIES_CONFIG,
-            ts_codes=None,  # 处理所有股票
-            trade_date=None,  # 使用今天
+            ts_codes=['300997.SZ'],  # 处理所有股票
+            trade_date="20260105",  # 使用今天
             update_real_time_data=False,  # 统一更新实时K线数据
             send_to_robots=False
         )

@@ -101,8 +101,12 @@ class StrategyPipeline(BasePipeline):
                 - start_date_days: 历史数据开始日期（天数）
                 - name: 策略名称（可选）
             ts_codes: 股票代码列表（可选，如果不提供则处理所有股票）
-            trade_date: 当天交易日期 (YYYY-MM-DD)（可选，默认为今天）
+            trade_date: 交易日期 (YYYY-MM-DD)（可选，默认为今天）
+                - 如果指定今天：会更新实时K线数据，然后运行策略
+                - 如果指定历史日期：自动跳过实时数据更新，直接使用历史日K线数据运行策略
+                - 如果指定未来日期：会给出警告并使用今天的数据
             update_real_time_data: 是否先更新实时K线数据（默认 True）
+                - 注意：如果指定历史日期，此参数会自动设置为 False
             send_to_robots: 是否发送消息到机器人（默认 True）
             **kwargs: 其他参数
         
@@ -119,6 +123,22 @@ class StrategyPipeline(BasePipeline):
             if trade_date is None:
                 trade_date = DateHelper.today()
             trade_date = DateHelper.normalize_to_yyyy_mm_dd(trade_date)
+            
+            # 判断日期类型并自动调整 update_real_time_data
+            today = DateHelper.today()
+            is_historical_date = trade_date < today
+            is_future_date = trade_date > today
+            
+            if is_future_date:
+                logger.warning(f"指定的交易日期 {trade_date} 是未来日期，将使用今天的数据")
+                trade_date = today
+                is_historical_date = False
+            
+            # 如果是历史日期，自动跳过实时数据更新
+            if is_historical_date:
+                if update_real_time_data:
+                    logger.info(f"指定的交易日期 {trade_date} 是历史日期，将跳过实时数据更新")
+                    update_real_time_data = False
             
             # 0. 统一更新实时K线数据（只执行一次）
             if update_real_time_data:
