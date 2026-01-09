@@ -28,6 +28,10 @@ from core.calculators.indicator_calculator import IndicatorCalculator
 class KDJStrategy(BaseStrategy):
     """
     少妇战法策略
+
+    要求：
+    1. 需要在2025-12-31日，召回601399.SH这只股票。
+
     
     策略说明：
     1. KDJ指标的J值 <= 5：表示股票处于超卖状态，可能反弹

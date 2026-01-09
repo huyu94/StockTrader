@@ -130,7 +130,7 @@ class Aggregator:
         # 按股票代码和日期排序
         result_df = result_df.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
         
-        logger.debug(f"聚合完成，共生成 {len(result_df)} 条日K线数据")
+        # logger.debug(f"聚合完成，共生成 {len(result_df)} 条日K线数据")
         return result_df
     
     def aggregate_with_custom_rules(
