@@ -8,7 +8,9 @@
 
 import signal
 import sys
+import os
 from loguru import logger
+from sqlalchemy import create_engine, text
 from core.pipelines.history_pipeline import HistoryPipeline
 from core.pipelines.daily_pipeline import DailyPipeline
 from core.pipelines.strategy_pipeline import StrategyPipeline
@@ -54,6 +56,71 @@ STRATEGIES_CONFIG = [
     #     'name': '另一个策略'
     # },
 ]
+
+
+def verify_database_connection() -> bool:
+    """
+    验证数据库连接是否正常
+    
+    从环境变量读取 MySQL 配置，创建临时引擎测试连接，
+    执行简单查询验证数据库可访问性。
+    
+    Returns:
+        bool: 连接成功返回 True，失败返回 False
+    """
+    try:
+        # 从环境变量读取MySQL配置（与 BaseLoader._get_engine() 使用相同的配置源）
+        host = os.getenv("MYSQL_HOST", "localhost")
+        port = int(os.getenv("MYSQL_PORT", "3306"))
+        user = os.getenv("MYSQL_USER", "root")
+        password = os.getenv("MYSQL_PASSWORD", "")
+        database = os.getenv("MYSQL_DATABASE", "stock_data")
+        charset = os.getenv("MYSQL_CHARSET", "utf8mb4")
+        
+        # 构建连接URL
+        connection_url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset={charset}"
+        
+        # 创建临时引擎进行连接测试（不重用 BaseLoader 的引擎，避免副作用）
+        engine = create_engine(
+            connection_url,
+            pool_pre_ping=True,
+            echo=False,
+            connect_args={"connect_timeout": 5}  # 设置连接超时为5秒
+        )
+        
+        # 测试连接并执行简单查询
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT 1"))
+            result.fetchone()
+        
+        logger.info(f"✓ 数据库连接验证成功: {host}:{port}/{database}")
+        return True
+        
+    except Exception as e:
+        # 获取配置信息（隐藏密码）
+        host = os.getenv("MYSQL_HOST", "localhost")
+        port = os.getenv("MYSQL_PORT", "3306")
+        database = os.getenv("MYSQL_DATABASE", "stock_data")
+        user = os.getenv("MYSQL_USER", "root")
+        
+        logger.warning("=" * 80)
+        logger.warning("⚠️  数据库连接验证失败！")
+        logger.warning("=" * 80)
+        logger.warning(f"配置信息:")
+        logger.warning(f"  主机: {host}")
+        logger.warning(f"  端口: {port}")
+        logger.warning(f"  数据库: {database}")
+        logger.warning(f"  用户: {user}")
+        logger.warning(f"错误详情: {str(e)}")
+        logger.warning("=" * 80)
+        logger.warning("程序将继续运行，但数据库相关功能可能无法正常工作。")
+        logger.warning("请检查:")
+        logger.warning("  1. MySQL 服务是否正在运行")
+        logger.warning("  2. 网络连接是否正常")
+        logger.warning("  3. 环境变量配置是否正确（MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE）")
+        logger.warning("  4. 数据库用户是否有足够的权限")
+        logger.warning("=" * 80)
+        return False
 
 
 def is_trading_day(trade_date: str) -> bool:
@@ -273,6 +340,9 @@ def main():
     try:
         # 设置日志
         setup_logger()
+        
+        # 验证数据库连接
+        verify_database_connection()
         
         # 创建调度器
         scheduler = TaskScheduler(config={'timezone': 'Asia/Shanghai'})
