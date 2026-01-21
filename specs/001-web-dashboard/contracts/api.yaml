@@ -5,6 +5,20 @@ info:
 servers:
   - url: /api
 paths:
+  /health:
+    get:
+      summary: 健康检查
+      responses:
+        "200":
+          description: 服务状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
   /stocks:
     get:
       summary: 搜索股票列表
@@ -19,11 +33,14 @@ paths:
           schema:
             type: integer
             default: 20
+            minimum: 1
+            maximum: 200
         - in: query
           name: offset
           schema:
             type: integer
             default: 0
+            minimum: 0
       responses:
         "200":
           description: 股票列表
@@ -44,12 +61,12 @@ paths:
           name: start_date
           schema:
             type: string
-          description: 起始日期（YYYYMMDD）
+          description: 起始日期（YYYYMMDD or YYYY-MM-DD）
         - in: query
           name: end_date
           schema:
             type: string
-          description: 结束日期（YYYYMMDD）
+          description: 结束日期（YYYYMMDD or YYYY-MM-DD）
       responses:
         "200":
           description: 日线行情数据

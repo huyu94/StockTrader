@@ -131,10 +131,10 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T034 [P] Align API docs with implementation in `specs/001-web-dashboard/contracts/api.yaml`
-- [ ] T035 [P] Update quickstart commands in `specs/001-web-dashboard/quickstart.md`
-- [ ] T036 Code cleanup and refactoring in `backend/src/` and `frontend/src/`
-- [ ] T037 Performance tuning for daily kline queries in `backend/src/services/daily_kline_service.py`
+- [x] T034 [P] Align API docs with implementation in `specs/001-web-dashboard/contracts/api.yaml`
+- [x] T035 [P] Update quickstart commands in `specs/001-web-dashboard/quickstart.md`
+- [x] T036 Code cleanup and refactoring in `backend/src/` and `frontend/src/`
+- [x] T037 Performance tuning for daily kline queries in `backend/src/services/daily_kline_service.py`
 
 ---
 
