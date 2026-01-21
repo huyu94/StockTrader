@@ -1,0 +1,30 @@
+﻿# StockTrader Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-01-21
+
+## Active Technologies
+
+- Python 3.12（后端），Node.js 20+ 与 TypeScript 5.x（前端） + FastAPI, Uvicorn, SQLAlchemy, Pydantic；React, Ant Design, ECharts (001-web-dashboard)
+
+## Project Structure
+
+```text
+backend/
+frontend/
+tests/
+```
+
+## Commands
+
+cd src; pytest; ruff check .
+
+## Code Style
+
+Python 3.12（后端），Node.js 20+ 与 TypeScript 5.x（前端）: Follow standard conventions
+
+## Recent Changes
+
+- 001-web-dashboard: Added Python 3.12（后端），Node.js 20+ 与 TypeScript 5.x（前端） + FastAPI, Uvicorn, SQLAlchemy, Pydantic；React, Ant Design, ECharts
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->
