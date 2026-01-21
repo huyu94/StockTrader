@@ -8,15 +8,19 @@ __pycache__/
 dist/
 build/
 
+# 编程助手
+.cursor/
+.trae/
+
+
 # 虚拟环境
-venv/
+.venv/
 env/
 ENV/
 
 # IDE
 .vscode/
 .idea/
-*.swp
 *.swo
 *~
 
@@ -25,7 +29,7 @@ logs/
 *.log
 
 # 数据文件（如果需要挂载卷，可以保留）
-# data/
+data/
 
 # Git
 .git/
@@ -58,4 +62,5 @@ input/
 # 系统文件
 .DS_Store
 Thumbs.db
+
 

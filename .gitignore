@@ -27,6 +27,13 @@ logs/
 *.swo
 *~
 
+# cursor/ claude 本地配置
+.cursor/commands/
+.claude/settings.local.json
+*.local.*
+
+
+
 # OS
 .DS_Store
 Thumbs.db
