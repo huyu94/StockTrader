@@ -1,0 +1,175 @@
+openapi: 3.0.3
+info:
+  title: Web Dashboard API
+  version: 0.1.0
+servers:
+  - url: /api
+paths:
+  /stocks:
+    get:
+      summary: 搜索股票列表
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+          description: 股票代码或名称关键字
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: 股票列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockListResponse"
+  /stocks/{ts_code}/daily:
+    get:
+      summary: 获取股票日线行情
+      parameters:
+        - in: path
+          name: ts_code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: start_date
+          schema:
+            type: string
+          description: 起始日期（YYYYMMDD）
+        - in: query
+          name: end_date
+          schema:
+            type: string
+          description: 结束日期（YYYYMMDD）
+      responses:
+        "200":
+          description: 日线行情数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyKlineResponse"
+  /status/data-updates:
+    get:
+      summary: 获取数据更新状态
+      responses:
+        "200":
+          description: 更新状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataUpdateStatusResponse"
+  /ui/action-slots:
+    get:
+      summary: 获取预留采集按钮入口
+      responses:
+        "200":
+          description: 预留按钮列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiActionSlotResponse"
+components:
+  schemas:
+    Stock:
+      type: object
+      properties:
+        ts_code:
+          type: string
+        name:
+          type: string
+        market:
+          type: string
+      required: [ts_code, name]
+    DailyKline:
+      type: object
+      properties:
+        trade_date:
+          type: string
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+        amount:
+          type: number
+        adj_factor:
+          type: number
+      required: [trade_date, open, high, low, close, volume]
+    DataUpdateStatus:
+      type: object
+      properties:
+        dataset:
+          type: string
+        last_updated_at:
+          type: string
+        coverage_start:
+          type: string
+        coverage_end:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+      required: [dataset, last_updated_at, status]
+    UiActionSlot:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        state:
+          type: string
+        tooltip:
+          type: string
+      required: [id, label, state]
+    StockListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stock"
+        total:
+          type: integer
+      required: [items, total]
+    DailyKlineResponse:
+      type: object
+      properties:
+        ts_code:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyKline"
+      required: [ts_code, items]
+    DataUpdateStatusResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataUpdateStatus"
+      required: [items]
+    UiActionSlotResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiActionSlot"
+      required: [items]
